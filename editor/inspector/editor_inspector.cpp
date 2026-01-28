@@ -31,6 +31,7 @@
 #include "editor_inspector.h"
 #include "editor_inspector.compat.inc"
 
+#include "core/input/input.h"
 #include "core/os/keyboard.h"
 #include "editor/debugger/editor_debugger_inspector.h"
 #include "editor/doc/doc_tools.h"
@@ -468,7 +469,7 @@ void EditorProperty::_notification(int p_what) {
 			// Only draw the label if it's not empty.
 			if (label.is_empty()) {
 				size.height = 0;
-			} else if (sub_inspector_color_level >= 0) {
+			} else if (sub_inspector_color_level >= 0 && theme_cache.sub_inspector_background[sub_inspector_color_level].is_valid()) {
 				draw_style_box(theme_cache.sub_inspector_background[sub_inspector_color_level], Rect2(Vector2(), size));
 			} else {
 				draw_style_box(selected ? theme_cache.background_selected : theme_cache.background, Rect2(Vector2(), size));
