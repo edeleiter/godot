@@ -3,7 +3,12 @@
     "allow": [
       "WebFetch(domain:raw.githubusercontent.com)",
       "Skill(superpowers:systematic-debugging)",
-      "Skill(superpowers:systematic-debugging:*)"
+      "Skill(superpowers:systematic-debugging:*)",
+      "mcp__godot__godot_run_scene",
+      "mcp__godot__godot_set_property",
+      "mcp__godot__godot_create_script",
+      "mcp__godot__godot_get_scene_tree",
+      "mcp__godot__godot_get_property"
     ]
   }
 }

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GodotMCPServer" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		MCP (Model Context Protocol) server for Claude Code integration.
+	</brief_description>
+	<description>
+		Implements the Model Context Protocol (MCP) to allow Claude Code to interact with the Godot editor. Provides tools for scene tree manipulation, script editing, and editor control.
+		The server listens on a TCP port (default 6009) and communicates via newline-delimited JSON-RPC. A Python bridge script is used to connect Claude Code's stdio transport to this TCP server.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="start">
+			<return type="int" enum="Error" />
+			<param index="0" name="port" type="int" default="6009" />
+			<param index="1" name="host" type="String" default="&quot;127.0.0.1&quot;" />
+			<description>
+				Starts the MCP TCP server on the given port and host. Returns [constant OK] on success.
+			</description>
+		</method>
+		<method name="stop">
+			<return type="void" />
+			<description>
+				Stops the MCP server and disconnects all clients.
+			</description>
+		</method>
+		<method name="poll">
+			<return type="void" />
+			<description>
+				Polls the TCP server: accepts new connections, reads incoming data, processes JSON-RPC messages, and sends queued responses. Called automatically by the editor plugin each frame.
+			</description>
+		</method>
+		<method name="is_running">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the server is currently running.
+			</description>
+		</method>
+		<method name="get_port">
+			<return type="int" />
+			<description>
+				Returns the port the server is listening on.
+			</description>
+		</method>
+		<method name="get_client_count">
+			<return type="int" />
+			<description>
+				Returns the number of currently connected clients.
+			</description>
+		</method>
+	</methods>
+	<signals>
+		<signal name="tool_called">
+			<param index="0" name="tool_name" type="String" />
+			<param index="1" name="args" type="Dictionary" />
+			<description>
+				Emitted when a tool is called via the MCP protocol.
+			</description>
+		</signal>
+		<signal name="client_connected">
+			<param index="0" name="client_id" type="int" />
+			<description>
+				Emitted when a new client connects to the server.
+			</description>
+		</signal>
+		<signal name="client_disconnected">
+			<param index="0" name="client_id" type="int" />
+			<description>
+				Emitted when a client disconnects from the server.
+			</description>
+		</signal>
+	</signals>
+</class>
