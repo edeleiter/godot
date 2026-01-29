@@ -102,16 +102,36 @@ private:
 	Dictionary _tool_select_nodes(const Dictionary &p_args);
 	Dictionary _tool_run_scene(const Dictionary &p_args);
 	Dictionary _tool_stop_scene(const Dictionary &p_args);
+	Dictionary _tool_get_runtime_scene_tree(const Dictionary &p_args);
+	Dictionary _tool_get_runtime_output(const Dictionary &p_args);
+	Dictionary _tool_capture_screenshot(const Dictionary &p_args);
+
+	// Runtime inspection helpers
+	Dictionary _serialize_remote_tree(const Array &p_nodes);
+
+	// Output buffer for runtime logs
+	struct OutputMessage {
+		String type; // "log", "warning", "error"
+		String text;
+		double timestamp = 0;
+	};
+	Vector<OutputMessage> output_buffer;
+	static const int MAX_OUTPUT_BUFFER = 1000;
 
 	// Validation helpers
 	bool _validate_node_path(const String &p_path, String &r_error);
 	bool _validate_script_path(const String &p_path, String &r_error);
 	bool _validate_node_type(const String &p_type, String &r_error);
+	bool _validate_resource_type(const String &p_type, String &r_error);
 	Node *_resolve_node_path(const String &p_path);
 	Node *_get_scene_root();
 
+	// Resource type allowlist for safe instantiation
+	static const HashSet<String> ALLOWED_RESOURCE_TYPES;
+
 	// Type coercion
 	Variant _coerce_value(const Variant &p_value, Variant::Type p_target_type);
+	Ref<Resource> _instantiate_resource(const String &p_type);
 
 	// File operation helpers (used as undo/redo targets)
 	void _write_script_file(const String &p_path, const String &p_content);

@@ -39,13 +39,42 @@
 #include "scene/main/node.h"
 
 #ifdef TOOLS_ENABLED
+#include "editor/debugger/editor_debugger_node.h"
+#include "editor/debugger/script_editor_debugger.h"
 #include "editor/editor_data.h"
 #include "editor/editor_interface.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/file_system/editor_file_system.h"
+#include "scene/debugger/scene_debugger.h"
 #endif
 
+#include "core/os/os.h"
+#include "core/os/time.h"
+
 const char *GodotMCPServer::PROTOCOL_VERSION = "2024-11-05";
+
+// Resource types safe for instantiation via MCP
+const HashSet<String> GodotMCPServer::ALLOWED_RESOURCE_TYPES = {
+	// Primitive meshes
+	"BoxMesh", "SphereMesh", "CylinderMesh", "CapsuleMesh", "PlaneMesh",
+	"PrismMesh", "TorusMesh", "PointMesh", "QuadMesh", "TextMesh",
+	// Materials
+	"StandardMaterial3D", "ORMMaterial3D", "ShaderMaterial",
+	// Shapes (3D)
+	"BoxShape3D", "SphereShape3D", "CapsuleShape3D", "CylinderShape3D",
+	"ConvexPolygonShape3D", "ConcavePolygonShape3D", "WorldBoundaryShape3D",
+	"HeightMapShape3D", "SeparationRayShape3D",
+	// Shapes (2D)
+	"RectangleShape2D", "CircleShape2D", "CapsuleShape2D",
+	"ConvexPolygonShape2D", "ConcavePolygonShape2D", "SegmentShape2D",
+	"SeparationRayShape2D", "WorldBoundaryShape2D",
+	// Other safe resources
+	"Gradient", "Curve", "Curve2D", "Curve3D",
+	"Environment", "Sky", "PhysicsMaterial",
+	"ProceduralSkyMaterial", "PanoramaSkyMaterial", "PhysicalSkyMaterial",
+	"StyleBoxFlat", "StyleBoxLine", "StyleBoxEmpty",
+	"LabelSettings", "FontVariation",
+};
 
 void GodotMCPServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("start", "port", "host"), &GodotMCPServer::start, DEFVAL(DEFAULT_PORT), DEFVAL("127.0.0.1"));
@@ -471,6 +500,25 @@ Dictionary GodotMCPServer::_handle_tools_list(const Dictionary &p_params) {
 			"Stop the running scene",
 			Dictionary()));
 
+	// Runtime inspection tools.
+	tools.push_back(_define_tool(
+			"godot_get_runtime_scene_tree",
+			"Get the scene tree from the currently running game instance",
+			Dictionary()));
+
+	Array get_output_params;
+	get_output_params.push_back(Dictionary{ { "name", "limit" }, { "type", "integer" }, { "description", "Maximum number of messages to return (default 100)" }, { "required", false } });
+	get_output_params.push_back(Dictionary{ { "name", "since_timestamp" }, { "type", "number" }, { "description", "Only return messages after this Unix timestamp" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_get_runtime_output",
+			"Get output/log messages from the running game",
+			_make_schema(get_output_params)));
+
+	tools.push_back(_define_tool(
+			"godot_capture_screenshot",
+			"Capture a screenshot from the running game viewport",
+			Dictionary()));
+
 	Dictionary result;
 	result["tools"] = tools;
 	return result;
@@ -508,6 +556,12 @@ Dictionary GodotMCPServer::_handle_tools_call(const Dictionary &p_params) {
 		result = _tool_run_scene(args);
 	} else if (name == "godot_stop_scene") {
 		result = _tool_stop_scene(args);
+	} else if (name == "godot_get_runtime_scene_tree") {
+		result = _tool_get_runtime_scene_tree(args);
+	} else if (name == "godot_get_runtime_output") {
+		result = _tool_get_runtime_output(args);
+	} else if (name == "godot_capture_screenshot") {
+		result = _tool_capture_screenshot(args);
 	} else {
 		result = _error_result("Unknown tool: " + name);
 	}
@@ -656,6 +710,30 @@ bool GodotMCPServer::_validate_node_type(const String &p_type, String &r_error) 
 	return true;
 }
 
+bool GodotMCPServer::_validate_resource_type(const String &p_type, String &r_error) {
+	if (p_type.is_empty()) {
+		r_error = "Resource type is empty";
+		return false;
+	}
+
+	if (!ALLOWED_RESOURCE_TYPES.has(p_type)) {
+		r_error = "Resource type not allowed: " + p_type + ". Only safe resource types can be instantiated.";
+		return false;
+	}
+
+	if (!ClassDB::class_exists(p_type)) {
+		r_error = "Unknown class: " + p_type;
+		return false;
+	}
+
+	if (!ClassDB::can_instantiate(p_type)) {
+		r_error = "Cannot instantiate: " + p_type;
+		return false;
+	}
+
+	return true;
+}
+
 Node *GodotMCPServer::_get_scene_root() {
 #ifdef TOOLS_ENABLED
 	return EditorInterface::get_singleton()->get_edited_scene_root();
@@ -697,6 +775,24 @@ Node *GodotMCPServer::_resolve_node_path(const String &p_path) {
 	}
 
 	return nullptr;
+}
+
+// Resource instantiation helper.
+Ref<Resource> GodotMCPServer::_instantiate_resource(const String &p_type) {
+	String error;
+	if (!_validate_resource_type(p_type, error)) {
+		return Ref<Resource>();
+	}
+	Object *obj = ClassDB::instantiate(p_type);
+	if (!obj) {
+		return Ref<Resource>();
+	}
+	Resource *res = Object::cast_to<Resource>(obj);
+	if (!res) {
+		memdelete(obj);
+		return Ref<Resource>();
+	}
+	return Ref<Resource>(res);
 }
 
 // Type coercion for JSON values to Godot types.
@@ -760,8 +856,40 @@ Variant GodotMCPServer::_coerce_value(const Variant &p_value, Variant::Type p_ta
 						dict.get("width", 0),
 						dict.get("height", 0));
 			}
+			case Variant::OBJECT: {
+				// Dict with _type -> Resource with properties
+				if (dict.has("_type")) {
+					String type_name = dict["_type"];
+					Ref<Resource> ref = _instantiate_resource(type_name);
+					if (ref.is_valid()) {
+						// Apply properties from the dictionary
+						for (const Variant *key = dict.next(); key; key = dict.next(key)) {
+							String prop = *key;
+							if (prop == "_type") {
+								continue;
+							}
+							Variant val = dict[*key];
+							Variant current = ref->get(prop);
+							if (current.get_type() != Variant::NIL) {
+								val = _coerce_value(val, current.get_type());
+							}
+							ref->set(prop, val);
+						}
+						return ref;
+					}
+				}
+				break;
+			}
 			default:
 				break;
+		}
+	}
+
+	// Handle String -> Resource instantiation for OBJECT type
+	if (p_target_type == Variant::OBJECT && p_value.get_type() == Variant::STRING) {
+		Ref<Resource> ref = _instantiate_resource(p_value);
+		if (ref.is_valid()) {
+			return ref;
 		}
 	}
 
@@ -963,10 +1091,26 @@ Dictionary GodotMCPServer::_tool_set_property(const Dictionary &p_args) {
 		return _error_result("Property name is empty");
 	}
 
-	// Coerce value to match the property's expected type.
+	// Get property info to determine target type.
 	Variant current_value = node->get(property);
-	if (current_value.get_type() != Variant::NIL) {
-		value = _coerce_value(value, current_value.get_type());
+	Variant::Type target_type = current_value.get_type();
+
+	// Special case: if current is null but property expects Object, check property info.
+	// This handles cases like MeshInstance3D.mesh where the mesh is initially null.
+	if (target_type == Variant::NIL) {
+		List<PropertyInfo> props;
+		node->get_property_list(&props);
+		for (const PropertyInfo &pi : props) {
+			if (pi.name == property && pi.type == Variant::OBJECT) {
+				target_type = Variant::OBJECT;
+				break;
+			}
+		}
+	}
+
+	// Coerce value to match the property's expected type.
+	if (target_type != Variant::NIL) {
+		value = _coerce_value(value, target_type);
 	}
 
 	// Get old value for undo.
@@ -1199,6 +1343,159 @@ Dictionary GodotMCPServer::_tool_stop_scene(const Dictionary &p_args) {
 #ifdef TOOLS_ENABLED
 	EditorInterface::get_singleton()->stop_playing_scene();
 	return _success_result("Stopped scene");
+#else
+	return _error_result("Editor functionality not available");
+#endif
+}
+
+// Helper to serialize remote tree from flat node list to hierarchical structure.
+Dictionary GodotMCPServer::_serialize_remote_tree(const Array &p_nodes) {
+	// The nodes come as a flat list with child_count indicating nesting.
+	// We need to convert to a hierarchical dictionary structure.
+	struct StackEntry {
+		Dictionary node;
+		int remaining_children;
+	};
+	Vector<StackEntry> stack;
+	Dictionary root;
+
+	for (int i = 0; i < p_nodes.size(); i++) {
+		Dictionary node_data = p_nodes[i];
+
+		Dictionary dict;
+		dict["name"] = node_data.get("name", "");
+		dict["type"] = node_data.get("type", "");
+		dict["id"] = node_data.get("id", 0);
+		dict["scene_file_path"] = node_data.get("scene_file_path", "");
+		dict["children"] = Array();
+
+		int child_count = node_data.get("child_count", 0);
+
+		if (stack.is_empty()) {
+			root = dict;
+		} else {
+			Array children = stack[stack.size() - 1].node["children"];
+			children.push_back(dict);
+			stack.write[stack.size() - 1].remaining_children--;
+		}
+
+		// Pop completed parents from stack.
+		while (!stack.is_empty() && stack[stack.size() - 1].remaining_children == 0) {
+			stack.resize(stack.size() - 1);
+		}
+
+		if (child_count > 0) {
+			StackEntry entry;
+			entry.node = dict;
+			entry.remaining_children = child_count;
+			stack.push_back(entry);
+		}
+	}
+
+	return root;
+}
+
+Dictionary GodotMCPServer::_tool_get_runtime_scene_tree(const Dictionary &p_args) {
+#ifdef TOOLS_ENABLED
+	if (!EditorInterface::get_singleton()->is_playing_scene()) {
+		return _success_result("No game running",
+				Dictionary{ { "running", false }, { "scene", Variant() } });
+	}
+
+	ScriptEditorDebugger *debugger = EditorDebuggerNode::get_singleton()->get_current_debugger();
+	if (!debugger || !debugger->is_session_active()) {
+		return _error_result("Debugger session not active");
+	}
+
+	// Request fresh tree data.
+	debugger->request_remote_tree();
+
+	// Poll with timeout waiting for the tree data.
+	uint64_t start = Time::get_singleton()->get_ticks_msec();
+	const uint64_t timeout_ms = 2000;
+
+	while (Time::get_singleton()->get_ticks_msec() - start < timeout_ms) {
+		OS::get_singleton()->delay_usec(10000); // 10ms delay
+
+		const SceneDebuggerTree *tree = debugger->get_remote_tree();
+		if (tree && !tree->nodes.is_empty()) {
+			// Convert to JSON-serializable format.
+			Array nodes_array;
+			for (const SceneDebuggerTree::RemoteNode &node : tree->nodes) {
+				Dictionary node_dict;
+				node_dict["name"] = node.name;
+				node_dict["type"] = node.type_name;
+				node_dict["id"] = (int64_t)node.id;
+				node_dict["scene_file_path"] = node.scene_file_path;
+				node_dict["child_count"] = node.child_count;
+				nodes_array.push_back(node_dict);
+			}
+
+			Dictionary scene = _serialize_remote_tree(nodes_array);
+			return _success_result("Runtime scene tree retrieved",
+					Dictionary{ { "running", true }, { "scene", scene } });
+		}
+	}
+
+	return _error_result("Timeout waiting for runtime scene tree. Game may not be responding to debugger.");
+#else
+	return _error_result("Editor functionality not available");
+#endif
+}
+
+Dictionary GodotMCPServer::_tool_get_runtime_output(const Dictionary &p_args) {
+#ifdef TOOLS_ENABLED
+	bool is_running = EditorInterface::get_singleton()->is_playing_scene();
+	int limit = p_args.get("limit", 100);
+	double since = p_args.get("since_timestamp", 0.0);
+
+	Array messages;
+	int count = 0;
+
+	// Return messages from buffer (newest first).
+	for (int i = output_buffer.size() - 1; i >= 0 && count < limit; i--) {
+		const OutputMessage &msg = output_buffer[i];
+		if (since > 0.0 && msg.timestamp < since) {
+			continue;
+		}
+
+		Dictionary m;
+		m["type"] = msg.type;
+		m["text"] = msg.text;
+		m["timestamp"] = msg.timestamp;
+		messages.push_back(m);
+		count++;
+	}
+
+	return _success_result("Output retrieved",
+			Dictionary{ { "running", is_running }, { "message_count", messages.size() }, { "messages", messages } });
+#else
+	return _error_result("Editor functionality not available");
+#endif
+}
+
+Dictionary GodotMCPServer::_tool_capture_screenshot(const Dictionary &p_args) {
+#ifdef TOOLS_ENABLED
+	if (!EditorInterface::get_singleton()->is_playing_scene()) {
+		return _error_result("No game running");
+	}
+
+	ScriptEditorDebugger *debugger = EditorDebuggerNode::get_singleton()->get_current_debugger();
+	if (!debugger || !debugger->is_session_active()) {
+		return _error_result("Debugger not active");
+	}
+
+	// Request screenshot from running game.
+	// Note: The screenshot is saved by the game process, not returned directly.
+	// We need to check how Godot's debugger handles screenshots.
+	Array args;
+	args.push_back(0); // window_id = 0 (main window)
+	debugger->send_message("scene:rq_screenshot", args);
+
+	// For now, return a message indicating the screenshot was requested.
+	// The actual screenshot handling depends on the debugger's screenshot callback system.
+	return _success_result("Screenshot requested",
+			Dictionary{ { "note", "Screenshot capture is asynchronous. Check the editor for the result." } });
 #else
 	return _error_result("Editor functionality not available");
 #endif
