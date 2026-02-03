@@ -31,6 +31,7 @@
 #include "godot_mcp_server.h"
 
 #include "../util/mcp_scene_serializer.h"
+#include "core/crypto/crypto_core.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
@@ -43,13 +44,18 @@
 #include "editor/debugger/script_editor_debugger.h"
 #include "editor/editor_data.h"
 #include "editor/editor_interface.h"
+#include "editor/editor_node.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/file_system/editor_file_system.h"
+#include "editor/run/game_view_plugin.h"
+#include "editor/editor_log.h"
 #include "scene/debugger/scene_debugger.h"
 #endif
 
 #include "core/os/os.h"
 #include "core/os/time.h"
+#include "main/main.h"
+#include "servers/display/display_server.h"
 
 const char *GodotMCPServer::PROTOCOL_VERSION = "2024-11-05";
 
@@ -88,14 +94,111 @@ void GodotMCPServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_delete_script_file", "path"), &GodotMCPServer::_delete_script_file);
 	ClassDB::bind_method(D_METHOD("_attach_script_to_node", "node_path", "script_path"), &GodotMCPServer::_attach_script_to_node);
 	ClassDB::bind_method(D_METHOD("_detach_script_from_node", "node_path"), &GodotMCPServer::_detach_script_from_node);
+	ClassDB::bind_method(D_METHOD("_on_screenshot_captured", "width", "height", "path", "rect"), &GodotMCPServer::_on_screenshot_captured);
+	ClassDB::bind_method(D_METHOD("_on_debugger_output", "msg", "level"), &GodotMCPServer::_on_debugger_output);
 
 	ADD_SIGNAL(MethodInfo("tool_called", PropertyInfo(Variant::STRING, "tool_name"), PropertyInfo(Variant::DICTIONARY, "args")));
 	ADD_SIGNAL(MethodInfo("client_connected", PropertyInfo(Variant::INT, "client_id")));
 	ADD_SIGNAL(MethodInfo("client_disconnected", PropertyInfo(Variant::INT, "client_id")));
 }
 
+void GodotMCPServer::_on_screenshot_captured(int p_width, int p_height, const String &p_path, const Rect2i &p_rect) {
+	pending_screenshot.completed = true;
+	pending_screenshot.width = p_width;
+	pending_screenshot.height = p_height;
+	pending_screenshot.file_path = p_path;
+}
+
+void GodotMCPServer::_on_debugger_output(const String &p_msg, int p_level) {
+#ifdef TOOLS_ENABLED
+	OutputMessage msg;
+	msg.text = p_msg;
+	msg.timestamp = Time::get_singleton()->get_unix_time_from_system();
+
+	// Map EditorLog::MessageType to our type strings.
+	switch (p_level) {
+		case EditorLog::MSG_TYPE_ERROR:
+			msg.type = "error";
+			break;
+		case EditorLog::MSG_TYPE_WARNING:
+			msg.type = "warning";
+			break;
+		default:
+			msg.type = "log";
+			break;
+	}
+
+	output_buffer.push_back(msg);
+
+	// Trim buffer to max size.
+	while (output_buffer.size() > MAX_OUTPUT_BUFFER) {
+		output_buffer.remove_at(0);
+	}
+#endif
+}
+
+void GodotMCPServer::_connect_debugger_signals() {
+#ifdef TOOLS_ENABLED
+	if (debugger_connected) {
+		return;
+	}
+
+	EditorDebuggerNode *debugger_node = EditorDebuggerNode::get_singleton();
+	if (!debugger_node) {
+		return;
+	}
+
+	ScriptEditorDebugger *debugger = debugger_node->get_current_debugger();
+	if (debugger && debugger->is_session_active()) {
+		Callable callback = callable_mp(this, &GodotMCPServer::_on_debugger_output);
+		if (!debugger->is_connected("output", callback)) {
+			debugger->connect("output", callback);
+			debugger_connected = true;
+			output_buffer.clear(); // Fresh start for new session.
+		}
+	}
+#endif
+}
+
+void GodotMCPServer::_disconnect_debugger_signals() {
+#ifdef TOOLS_ENABLED
+	if (!debugger_connected) {
+		return;
+	}
+
+	EditorDebuggerNode *debugger_node = EditorDebuggerNode::get_singleton();
+	if (debugger_node) {
+		ScriptEditorDebugger *debugger = debugger_node->get_current_debugger();
+		if (debugger) {
+			Callable callback = callable_mp(this, &GodotMCPServer::_on_debugger_output);
+			if (debugger->is_connected("output", callback)) {
+				debugger->disconnect("output", callback);
+			}
+		}
+	}
+	debugger_connected = false;
+#endif
+}
+
 GodotMCPServer::GodotMCPServer() {
 	server.instantiate();
+
+	// Initialize tool dispatch map.
+	tool_handlers["godot_get_scene_tree"] = &GodotMCPServer::_tool_get_scene_tree;
+	tool_handlers["godot_add_node"] = &GodotMCPServer::_tool_add_node;
+	tool_handlers["godot_remove_node"] = &GodotMCPServer::_tool_remove_node;
+	tool_handlers["godot_set_property"] = &GodotMCPServer::_tool_set_property;
+	tool_handlers["godot_get_property"] = &GodotMCPServer::_tool_get_property;
+	tool_handlers["godot_create_script"] = &GodotMCPServer::_tool_create_script;
+	tool_handlers["godot_read_script"] = &GodotMCPServer::_tool_read_script;
+	tool_handlers["godot_modify_script"] = &GodotMCPServer::_tool_modify_script;
+	tool_handlers["godot_get_selected_nodes"] = &GodotMCPServer::_tool_get_selected_nodes;
+	tool_handlers["godot_select_nodes"] = &GodotMCPServer::_tool_select_nodes;
+	tool_handlers["godot_run_scene"] = &GodotMCPServer::_tool_run_scene;
+	tool_handlers["godot_stop_scene"] = &GodotMCPServer::_tool_stop_scene;
+	tool_handlers["godot_get_runtime_scene_tree"] = &GodotMCPServer::_tool_get_runtime_scene_tree;
+	tool_handlers["godot_get_runtime_output"] = &GodotMCPServer::_tool_get_runtime_output;
+	tool_handlers["godot_capture_screenshot"] = &GodotMCPServer::_tool_capture_screenshot;
 }
 
 GodotMCPServer::~GodotMCPServer() {
@@ -133,6 +236,8 @@ void GodotMCPServer::stop() {
 		return;
 	}
 
+	_disconnect_debugger_signals();
+
 	// Disconnect all clients.
 	for (KeyValue<int, Peer> &E : clients) {
 		E.value.connection->disconnect_from_host();
@@ -149,6 +254,16 @@ void GodotMCPServer::poll() {
 	if (!running) {
 		return;
 	}
+
+#ifdef TOOLS_ENABLED
+	// Manage debugger signal connections based on session state.
+	bool is_game_running = EditorInterface::get_singleton()->is_playing_scene();
+	if (is_game_running) {
+		_connect_debugger_signals();
+	} else {
+		_disconnect_debugger_signals();
+	}
+#endif
 
 	// Accept new connections.
 	while (server->is_connection_available()) {
@@ -387,12 +502,13 @@ Dictionary GodotMCPServer::_make_schema(const Array &p_params) {
 	for (int i = 0; i < p_params.size(); i++) {
 		Dictionary param = p_params[i];
 		String name = param.get("name", "");
-		String type = param.get("type", "string");
 		String desc = param.get("description", "");
 		bool is_required = param.get("required", true);
 
 		Dictionary prop;
-		prop["type"] = type;
+		if (param.has("type")) {
+			prop["type"] = param["type"];
+		}
 		prop["description"] = desc;
 		properties[name] = prop;
 
@@ -435,7 +551,7 @@ Dictionary GodotMCPServer::_handle_tools_list(const Dictionary &p_params) {
 	Array set_prop_params;
 	set_prop_params.push_back(Dictionary{ { "name", "node_path" }, { "type", "string" }, { "description", "Path to the node" }, { "required", true } });
 	set_prop_params.push_back(Dictionary{ { "name", "property" }, { "type", "string" }, { "description", "Property name" }, { "required", true } });
-	set_prop_params.push_back(Dictionary{ { "name", "value" }, { "type", "string" }, { "description", "New property value (as JSON)" }, { "required", true } });
+	set_prop_params.push_back(Dictionary{ { "name", "value" }, { "description", "New property value (as JSON)" }, { "required", true } });
 	tools.push_back(_define_tool(
 			"godot_set_property",
 			"Set a property on a node",
@@ -531,37 +647,8 @@ Dictionary GodotMCPServer::_handle_tools_call(const Dictionary &p_params) {
 	emit_signal("tool_called", name, args);
 
 	Dictionary result;
-
-	if (name == "godot_get_scene_tree") {
-		result = _tool_get_scene_tree(args);
-	} else if (name == "godot_add_node") {
-		result = _tool_add_node(args);
-	} else if (name == "godot_remove_node") {
-		result = _tool_remove_node(args);
-	} else if (name == "godot_set_property") {
-		result = _tool_set_property(args);
-	} else if (name == "godot_get_property") {
-		result = _tool_get_property(args);
-	} else if (name == "godot_create_script") {
-		result = _tool_create_script(args);
-	} else if (name == "godot_read_script") {
-		result = _tool_read_script(args);
-	} else if (name == "godot_modify_script") {
-		result = _tool_modify_script(args);
-	} else if (name == "godot_get_selected_nodes") {
-		result = _tool_get_selected_nodes(args);
-	} else if (name == "godot_select_nodes") {
-		result = _tool_select_nodes(args);
-	} else if (name == "godot_run_scene") {
-		result = _tool_run_scene(args);
-	} else if (name == "godot_stop_scene") {
-		result = _tool_stop_scene(args);
-	} else if (name == "godot_get_runtime_scene_tree") {
-		result = _tool_get_runtime_scene_tree(args);
-	} else if (name == "godot_get_runtime_output") {
-		result = _tool_get_runtime_output(args);
-	} else if (name == "godot_capture_screenshot") {
-		result = _tool_capture_screenshot(args);
+	if (tool_handlers.has(name)) {
+		result = (this->*tool_handlers[name])(args);
 	} else {
 		result = _error_result("Unknown tool: " + name);
 	}
@@ -569,6 +656,21 @@ Dictionary GodotMCPServer::_handle_tools_call(const Dictionary &p_params) {
 	// Wrap result in MCP content format.
 	Dictionary mcp_result;
 	Array content;
+
+	// Add image content if present (used by screenshot tool).
+	if (result.has("_image_data")) {
+		Dictionary image_content;
+		image_content["type"] = "image";
+		image_content["mimeType"] = result.get("_image_mime", "image/png");
+		image_content["data"] = result["_image_data"];
+		content.push_back(image_content);
+
+		// Remove internal image keys before serializing text result.
+		result.erase("_image_data");
+		result.erase("_image_mime");
+	}
+
+	// Add text content with the JSON result.
 	Dictionary text_content;
 	text_content["type"] = "text";
 	text_content["text"] = JSON::stringify(result, "\t");
@@ -962,11 +1064,8 @@ Dictionary GodotMCPServer::_tool_get_scene_tree(const Dictionary &p_args) {
 
 	Dictionary scene_data = serializer->serialize_scene(scene_root);
 
-	Dictionary result;
-	result["success"] = true;
-	result["scene"] = scene_data;
-	result["scene_path"] = scene_root->get_scene_file_path();
-	return result;
+	return _success_result("Scene tree retrieved",
+			Dictionary{ { "scene", scene_data }, { "scene_path", scene_root->get_scene_file_path() } });
 }
 
 Dictionary GodotMCPServer::_tool_add_node(const Dictionary &p_args) {
@@ -1149,12 +1248,8 @@ Dictionary GodotMCPServer::_tool_get_property(const Dictionary &p_args) {
 
 	Variant value = node->get(property);
 
-	Dictionary result;
-	result["success"] = true;
-	result["property"] = property;
-	result["value"] = value;
-	result["type"] = Variant::get_type_name(value.get_type());
-	return result;
+	return _success_result("Property retrieved",
+			Dictionary{ { "property", property }, { "value", value }, { "type", Variant::get_type_name(value.get_type()) } });
 }
 
 Dictionary GodotMCPServer::_tool_create_script(const Dictionary &p_args) {
@@ -1202,14 +1297,12 @@ Dictionary GodotMCPServer::_tool_create_script(const Dictionary &p_args) {
 
 	ur->commit_action();
 
-	Dictionary result;
-	result["success"] = true;
-	result["path"] = path;
-	result["message"] = "Created script: " + path;
+	Dictionary data;
+	data["path"] = path;
 	if (!attach_to.is_empty()) {
-		result["attached_to"] = attach_to;
+		data["attached_to"] = attach_to;
 	}
-	return result;
+	return _success_result("Created script: " + path, data);
 #else
 	return _error_result("Editor functionality not available");
 #endif
@@ -1234,11 +1327,8 @@ Dictionary GodotMCPServer::_tool_read_script(const Dictionary &p_args) {
 
 	String content = file->get_as_text();
 
-	Dictionary result;
-	result["success"] = true;
-	result["path"] = path;
-	result["content"] = content;
-	return result;
+	return _success_result("Script read",
+			Dictionary{ { "path", path }, { "content", content } });
 }
 
 Dictionary GodotMCPServer::_tool_modify_script(const Dictionary &p_args) {
@@ -1289,11 +1379,8 @@ Dictionary GodotMCPServer::_tool_get_selected_nodes(const Dictionary &p_args) {
 		}
 	}
 
-	Dictionary result;
-	result["success"] = true;
-	result["selected"] = paths;
-	result["count"] = paths.size();
-	return result;
+	return _success_result("Selected nodes retrieved",
+			Dictionary{ { "selected", paths }, { "count", paths.size() } });
 #else
 	return _error_result("Editor functionality not available");
 #endif
@@ -1415,7 +1502,10 @@ Dictionary GodotMCPServer::_tool_get_runtime_scene_tree(const Dictionary &p_args
 	const uint64_t timeout_ms = 2000;
 
 	while (Time::get_singleton()->get_ticks_msec() - start < timeout_ms) {
-		OS::get_singleton()->delay_usec(10000); // 10ms delay
+		// Run a full frame to process debugger messages.
+		// Using Main::iteration() is an established Godot pattern (see editor_interface.cpp).
+		DisplayServer::get_singleton()->process_events();
+		Main::iteration();
 
 		const SceneDebuggerTree *tree = debugger->get_remote_tree();
 		if (tree && !tree->nodes.is_empty()) {
@@ -1480,22 +1570,71 @@ Dictionary GodotMCPServer::_tool_capture_screenshot(const Dictionary &p_args) {
 		return _error_result("No game running");
 	}
 
-	ScriptEditorDebugger *debugger = EditorDebuggerNode::get_singleton()->get_current_debugger();
-	if (!debugger || !debugger->is_session_active()) {
-		return _error_result("Debugger not active");
+	// Find the GameViewDebugger via the editor plugin system.
+	GameViewDebugger *game_debugger = nullptr;
+	EditorData &editor_data = EditorNode::get_editor_data();
+	for (int i = 0; i < editor_data.get_editor_plugin_count(); i++) {
+		GameViewPluginBase *game_plugin = Object::cast_to<GameViewPluginBase>(editor_data.get_editor_plugin(i));
+		if (game_plugin) {
+			Ref<GameViewDebugger> debugger_ref = game_plugin->get_debugger();
+			if (debugger_ref.is_valid()) {
+				game_debugger = debugger_ref.ptr();
+				break;
+			}
+		}
 	}
 
-	// Request screenshot from running game.
-	// Note: The screenshot is saved by the game process, not returned directly.
-	// We need to check how Godot's debugger handles screenshots.
-	Array args;
-	args.push_back(0); // window_id = 0 (main window)
-	debugger->send_message("scene:rq_screenshot", args);
+	if (!game_debugger) {
+		return _error_result("GameViewDebugger not available");
+	}
 
-	// For now, return a message indicating the screenshot was requested.
-	// The actual screenshot handling depends on the debugger's screenshot callback system.
-	return _success_result("Screenshot requested",
-			Dictionary{ { "note", "Screenshot capture is asynchronous. Check the editor for the result." } });
+	// Reset pending screenshot state.
+	pending_screenshot = PendingScreenshot();
+
+	// Register callback and request screenshot.
+	Callable callback = callable_mp(this, &GodotMCPServer::_on_screenshot_captured);
+	bool registered = game_debugger->add_screenshot_callback(callback, Rect2i());
+
+	if (!registered) {
+		return _error_result("Failed to register screenshot callback. Is the game running?");
+	}
+
+	// Poll with timeout waiting for screenshot.
+	// The main editor loop will process debugger messages during the delay.
+	uint64_t start = Time::get_singleton()->get_ticks_msec();
+	const uint64_t timeout_ms = 5000; // 5 second timeout
+
+	while (!pending_screenshot.completed && (Time::get_singleton()->get_ticks_msec() - start < timeout_ms)) {
+		// Run a full frame to process debugger messages and receive the screenshot.
+		// Using Main::iteration() is an established Godot pattern (see editor_interface.cpp).
+		DisplayServer::get_singleton()->process_events();
+		Main::iteration();
+	}
+
+	if (!pending_screenshot.completed) {
+		return _error_result("Screenshot capture timed out");
+	}
+
+	// Read the PNG file and base64 encode it.
+	Vector<uint8_t> file_data = FileAccess::get_file_as_bytes(pending_screenshot.file_path);
+	if (file_data.is_empty()) {
+		return _error_result("Cannot read screenshot file: " + pending_screenshot.file_path);
+	}
+
+	String base64_data = CryptoCore::b64_encode_str(file_data.ptr(), file_data.size());
+
+	// Clean up the temp file.
+	DirAccess::remove_absolute(pending_screenshot.file_path);
+
+	// Return result with image data.
+	Dictionary result;
+	result["success"] = true;
+	result["message"] = "Screenshot captured";
+	result["width"] = pending_screenshot.width;
+	result["height"] = pending_screenshot.height;
+	result["_image_data"] = base64_data;
+	result["_image_mime"] = "image/png";
+	return result;
 #else
 	return _error_result("Editor functionality not available");
 #endif

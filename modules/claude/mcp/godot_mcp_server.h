@@ -46,6 +46,8 @@ public:
 	static const int MAX_CLIENTS = 4;
 	static const int MAX_BUFFER_SIZE = 4 * 1024 * 1024; // 4MB
 
+	using ToolHandler = Dictionary (GodotMCPServer::*)(const Dictionary &);
+
 private:
 	struct Peer {
 		Ref<StreamPeerTCP> connection;
@@ -118,6 +120,22 @@ private:
 	Vector<OutputMessage> output_buffer;
 	static const int MAX_OUTPUT_BUFFER = 1000;
 
+	// Pending screenshot state for async capture
+	struct PendingScreenshot {
+		bool completed = false;
+		int width = 0;
+		int height = 0;
+		String file_path;
+	};
+	PendingScreenshot pending_screenshot;
+	void _on_screenshot_captured(int p_width, int p_height, const String &p_path, const Rect2i &p_rect);
+
+	// Runtime output capture
+	void _on_debugger_output(const String &p_msg, int p_level);
+	void _connect_debugger_signals();
+	void _disconnect_debugger_signals();
+	bool debugger_connected = false;
+
 	// Validation helpers
 	bool _validate_node_path(const String &p_path, String &r_error);
 	bool _validate_script_path(const String &p_path, String &r_error);
@@ -128,6 +146,9 @@ private:
 
 	// Resource type allowlist for safe instantiation
 	static const HashSet<String> ALLOWED_RESOURCE_TYPES;
+
+	// Tool dispatch map
+	HashMap<String, ToolHandler> tool_handlers;
 
 	// Type coercion
 	Variant _coerce_value(const Variant &p_value, Variant::Type p_target_type);

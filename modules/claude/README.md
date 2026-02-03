@@ -65,6 +65,9 @@ claude
 | `godot_select_nodes` | Select nodes in the editor |
 | `godot_run_scene` | Run the scene |
 | `godot_stop_scene` | Stop running scene |
+| `godot_get_runtime_scene_tree` | Get scene tree from running game |
+| `godot_get_runtime_output` | Get log/print output from running game |
+| `godot_capture_screenshot` | Capture screenshot from running game |
 
 ## Architecture
 

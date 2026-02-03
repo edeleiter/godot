@@ -164,6 +164,9 @@ Implement these tools in `GodotMCPServer`:
 | `godot_select_nodes` | P2 | Set selection |
 | `godot_run_scene` | P2 | Run scene |
 | `godot_stop_scene` | P2 | Stop scene |
+| `godot_get_runtime_scene_tree` | P2 | Get runtime scene tree |
+| `godot_get_runtime_output` | P2 | Get runtime log output |
+| `godot_capture_screenshot` | P2 | Capture game screenshot |
 
 ## Phase 5: Editor Integration
 

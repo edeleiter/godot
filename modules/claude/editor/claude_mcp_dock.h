@@ -62,6 +62,10 @@ private:
 	void _on_tool_called(const String &p_name, const Dictionary &p_args);
 	void _on_copy_config_pressed();
 	void _update_config_snippet();
+	String _ensure_bridge_script() const;
+	String _get_bridge_path() const;
+	int _get_current_port() const;
+	String _generate_config_json(const String &p_bridge_path, int p_port) const;
 
 protected:
 	static void _bind_methods();

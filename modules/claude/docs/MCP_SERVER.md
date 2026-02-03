@@ -80,6 +80,9 @@ Add to your MCP settings (shown in the editor dock):
 | `godot_select_nodes` | Set editor selection | UI-only |
 | `godot_run_scene` | Run scene in editor | Uses editor run system |
 | `godot_stop_scene` | Stop running scene | Uses editor run system |
+| `godot_get_runtime_scene_tree` | Get running game scene tree | Read-only |
+| `godot_get_runtime_output` | Get game output/log messages | Read-only |
+| `godot_capture_screenshot` | Capture running game screenshot | Read-only |
 
 ## Resources
 

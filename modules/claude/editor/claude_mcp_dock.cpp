@@ -30,9 +30,13 @@
 
 #include "claude_mcp_dock.h"
 
+#include "../bridge/claude_mcp_bridge.gen.h"
+#include "core/io/dir_access.h"
+#include "core/io/file_access.h"
 #include "core/os/os.h"
 #include "core/os/time.h"
 #include "editor/editor_interface.h"
+#include "editor/file_system/editor_paths.h"
 #include "editor/settings/editor_settings.h"
 #include "scene/gui/button.h"
 #include "scene/gui/item_list.h"
@@ -108,7 +112,7 @@ void ClaudeMCPDock::_build_ui() {
 
 	// Info section.
 	Label *info_label = memnew(Label);
-	info_label->set_text("Add to Claude Desktop/Code settings (update path first):");
+	info_label->set_text("Add to Claude Desktop/Code settings:");
 	info_label->set_autowrap_mode(TextServer::AUTOWRAP_WORD);
 	add_child(info_label);
 
@@ -190,25 +194,66 @@ void ClaudeMCPDock::update_status() {
 	_update_config_snippet();
 }
 
-void ClaudeMCPDock::_update_config_snippet() {
-	int port = GodotMCPServer::DEFAULT_PORT;
-	if (mcp_server.is_valid() && mcp_server->is_running()) {
-		port = mcp_server->get_port();
+String ClaudeMCPDock::_ensure_bridge_script() const {
+	String data_dir = EditorPaths::get_singleton()->get_data_dir();
+	String bridge_path = data_dir.path_join("claude/bridge/claude_mcp_bridge.py");
+
+	// Always overwrite to ensure latest version.
+	Ref<DirAccess> da = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
+	da->make_dir_recursive(bridge_path.get_base_dir());
+
+	Ref<FileAccess> fa = FileAccess::open(bridge_path, FileAccess::WRITE);
+	if (fa.is_valid()) {
+		fa->store_string(_claude_mcp_bridge_script);
 	}
 
-	String config = vformat(R"([code]{
+	return bridge_path;
+}
+
+String ClaudeMCPDock::_get_bridge_path() const {
+#ifdef DEV_ENABLED
+	// In dev builds, prefer source tree for easier iteration.
+	String exec_dir = OS::get_singleton()->get_executable_path().get_base_dir();
+	String source_root = exec_dir.get_base_dir();
+	String dev_path = source_root.path_join("modules/claude/bridge/claude_mcp_bridge.py");
+
+	if (FileAccess::exists(dev_path)) {
+		return dev_path;
+	}
+#endif
+	// For release builds or when source not available, use extracted script.
+	return _ensure_bridge_script();
+}
+
+int ClaudeMCPDock::_get_current_port() const {
+	if (mcp_server.is_valid() && mcp_server->is_running()) {
+		return mcp_server->get_port();
+	}
+	return GodotMCPServer::DEFAULT_PORT;
+}
+
+String ClaudeMCPDock::_generate_config_json(const String &p_bridge_path, int p_port) const {
+	return vformat(R"({
   "mcpServers": {
     "godot": {
       "command": "python",
-      "args": ["<BRIDGE_PATH>", "--port", "%d"]
+      "args": ["%s", "--port", "%d"]
     }
   }
-}[/code]
+})",
+			p_bridge_path, p_port);
+}
 
-[b]Important:[/b] Replace [code]<BRIDGE_PATH>[/code] with the full path to:
-[code]modules/claude/bridge/claude_mcp_bridge.py[/code]
-in your Godot source directory.)",
-			port);
+void ClaudeMCPDock::_update_config_snippet() {
+	String bridge_path = _get_bridge_path();
+	String json = _generate_config_json(bridge_path, _get_current_port());
+
+	String config;
+	if (FileAccess::exists(bridge_path)) {
+		config = "[code]" + json + "[/code]\n\n[b]Ready to use![/b] Copy this config to your Claude settings.";
+	} else {
+		config = "[code]" + json + "[/code]\n\n[color=yellow][b]Warning:[/b][/color] Bridge script not found at expected path.\nYou may need to adjust the path for your installation.";
+	}
 	config_text->set_text(config);
 }
 
@@ -246,20 +291,6 @@ void ClaudeMCPDock::_on_tool_called(const String &p_name, const Dictionary &p_ar
 }
 
 void ClaudeMCPDock::_on_copy_config_pressed() {
-	int port = GodotMCPServer::DEFAULT_PORT;
-	if (mcp_server.is_valid() && mcp_server->is_running()) {
-		port = mcp_server->get_port();
-	}
-
-	String config = vformat(R"({
-  "mcpServers": {
-    "godot": {
-      "command": "python",
-      "args": ["<BRIDGE_PATH>", "--port", "%d"]
-    }
-  }
-})",
-			port);
-
+	String config = _generate_config_json(_get_bridge_path(), _get_current_port());
 	DisplayServer::get_singleton()->clipboard_set(config);
 }

@@ -203,3 +203,6 @@ Before deployment, verify:
 | `godot_stop_scene` | Medium | Uses editor's run system |
 | `godot_remove_node` | High | Undo/redo, root protection |
 | `godot_modify_script` | High | Path validation, undo/redo |
+| `godot_get_runtime_scene_tree` | Low | Read-only, requires active game |
+| `godot_get_runtime_output` | Low | Read-only, requires active game |
+| `godot_capture_screenshot` | Low | Read-only, requires active game |
