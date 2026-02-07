@@ -107,20 +107,27 @@ private:
 	Dictionary _tool_get_runtime_scene_tree(const Dictionary &p_args);
 	Dictionary _tool_get_runtime_output(const Dictionary &p_args);
 	Dictionary _tool_capture_screenshot(const Dictionary &p_args);
+	Dictionary _tool_runtime_camera_control(const Dictionary &p_args);
+	Dictionary _tool_get_runtime_camera_info(const Dictionary &p_args);
+
+	// Camera control helpers
+	Dictionary _camera_control_3d(const String &p_action, const Dictionary &p_args);
+	Dictionary _camera_control_2d(const String &p_action, const Dictionary &p_args);
 
 	// Runtime inspection helpers
 	Dictionary _serialize_remote_tree(const Array &p_nodes);
 
-	// Output buffer for runtime logs
+	// Output buffer for runtime logs.
 	struct OutputMessage {
 		String type; // "log", "warning", "error"
 		String text;
 		double timestamp = 0;
 	};
-	Vector<OutputMessage> output_buffer;
 	static const int MAX_OUTPUT_BUFFER = 1000;
+	Vector<OutputMessage> output_buffer;
+	bool debugger_connected = false;
 
-	// Pending screenshot state for async capture
+	// Pending screenshot state for async capture.
 	struct PendingScreenshot {
 		bool completed = false;
 		int width = 0;
@@ -128,13 +135,12 @@ private:
 		String file_path;
 	};
 	PendingScreenshot pending_screenshot;
-	void _on_screenshot_captured(int p_width, int p_height, const String &p_path, const Rect2i &p_rect);
 
-	// Runtime output capture
+	// Runtime output and screenshot callbacks.
+	void _on_screenshot_captured(int p_width, int p_height, const String &p_path, const Rect2i &p_rect);
 	void _on_debugger_output(const String &p_msg, int p_level);
 	void _connect_debugger_signals();
 	void _disconnect_debugger_signals();
-	bool debugger_connected = false;
 
 	// Validation helpers
 	bool _validate_node_path(const String &p_path, String &r_error);

@@ -13,7 +13,9 @@
       "mcp__godot__godot_get_runtime_output",
       "mcp__godot__godot_capture_screenshot",
       "mcp__godot__godot_read_script",
-      "mcp__godot__godot_stop_scene"
+      "mcp__godot__godot_stop_scene",
+      "mcp__godot__godot_get_runtime_camera_info",
+      "mcp__godot__godot_runtime_camera_control"
     ]
   }
 }

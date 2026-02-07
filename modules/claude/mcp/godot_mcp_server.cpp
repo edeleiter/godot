@@ -34,28 +34,28 @@
 #include "core/crypto/crypto_core.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
-#include "core/io/resource_loader.h"
 #include "core/io/ip_address.h"
+#include "core/io/resource_loader.h"
+#include "core/math/math_funcs.h"
 #include "core/object/class_db.h"
+#include "core/os/os.h"
+#include "core/os/time.h"
+#include "main/main.h"
 #include "scene/main/node.h"
+#include "servers/display/display_server.h"
 
 #ifdef TOOLS_ENABLED
 #include "editor/debugger/editor_debugger_node.h"
 #include "editor/debugger/script_editor_debugger.h"
 #include "editor/editor_data.h"
 #include "editor/editor_interface.h"
+#include "editor/editor_log.h"
 #include "editor/editor_node.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/file_system/editor_file_system.h"
 #include "editor/run/game_view_plugin.h"
-#include "editor/editor_log.h"
 #include "scene/debugger/scene_debugger.h"
 #endif
-
-#include "core/os/os.h"
-#include "core/os/time.h"
-#include "main/main.h"
-#include "servers/display/display_server.h"
 
 const char *GodotMCPServer::PROTOCOL_VERSION = "2024-11-05";
 
@@ -115,17 +115,13 @@ void GodotMCPServer::_on_debugger_output(const String &p_msg, int p_level) {
 	msg.text = p_msg;
 	msg.timestamp = Time::get_singleton()->get_unix_time_from_system();
 
-	// Map EditorLog::MessageType to our type strings.
-	switch (p_level) {
-		case EditorLog::MSG_TYPE_ERROR:
-			msg.type = "error";
-			break;
-		case EditorLog::MSG_TYPE_WARNING:
-			msg.type = "warning";
-			break;
-		default:
-			msg.type = "log";
-			break;
+	// Map EditorLog::MessageType to type strings.
+	if (p_level == EditorLog::MSG_TYPE_ERROR) {
+		msg.type = "error";
+	} else if (p_level == EditorLog::MSG_TYPE_WARNING) {
+		msg.type = "warning";
+	} else {
+		msg.type = "log";
 	}
 
 	output_buffer.push_back(msg);
@@ -199,6 +195,8 @@ GodotMCPServer::GodotMCPServer() {
 	tool_handlers["godot_get_runtime_scene_tree"] = &GodotMCPServer::_tool_get_runtime_scene_tree;
 	tool_handlers["godot_get_runtime_output"] = &GodotMCPServer::_tool_get_runtime_output;
 	tool_handlers["godot_capture_screenshot"] = &GodotMCPServer::_tool_capture_screenshot;
+	tool_handlers["godot_runtime_camera_control"] = &GodotMCPServer::_tool_runtime_camera_control;
+	tool_handlers["godot_get_runtime_camera_info"] = &GodotMCPServer::_tool_get_runtime_camera_info;
 }
 
 GodotMCPServer::~GodotMCPServer() {
@@ -213,12 +211,7 @@ Error GodotMCPServer::start(int p_port, const String &p_host) {
 	port = p_port;
 	host = p_host;
 
-	IPAddress ip;
-	if (host == "127.0.0.1" || host == "localhost") {
-		ip = IPAddress("127.0.0.1");
-	} else {
-		ip = IPAddress(host);
-	}
+	IPAddress ip = (host == "localhost") ? IPAddress("127.0.0.1") : IPAddress(host);
 
 	Error err = server->listen(port, ip);
 	if (err != OK) {
@@ -425,30 +418,33 @@ void GodotMCPServer::_handle_request(const Dictionary &p_request) {
 	Dictionary params = p_request.get("params", Dictionary());
 	Variant id = p_request.get("id", Variant());
 
-	Dictionary response;
-	response["jsonrpc"] = "2.0";
-	response["id"] = id;
-
-	if (method == "initialize") {
-		response["result"] = _handle_initialize(params);
-	} else if (method == "tools/list") {
-		response["result"] = _handle_tools_list(params);
-	} else if (method == "tools/call") {
-		response["result"] = _handle_tools_call(params);
-	} else if (method == "resources/list") {
-		response["result"] = _handle_resources_list(params);
-	} else if (method == "resources/read") {
-		response["result"] = _handle_resources_read(params);
-	} else if (method == "notifications/initialized") {
-		// Client notification, no response needed.
+	// Client notification - no response needed.
+	if (method == "notifications/initialized") {
 		return;
+	}
+
+	Dictionary result;
+	if (method == "initialize") {
+		result = _handle_initialize(params);
+	} else if (method == "tools/list") {
+		result = _handle_tools_list(params);
+	} else if (method == "tools/call") {
+		result = _handle_tools_call(params);
+	} else if (method == "resources/list") {
+		result = _handle_resources_list(params);
+	} else if (method == "resources/read") {
+		result = _handle_resources_read(params);
 	} else if (method == "ping") {
-		response["result"] = Dictionary();
+		result = Dictionary();
 	} else {
 		_send_error(-32601, "Method not found: " + method, id);
 		return;
 	}
 
+	Dictionary response;
+	response["jsonrpc"] = "2.0";
+	response["id"] = id;
+	response["result"] = result;
 	_send_response(response);
 }
 
@@ -481,14 +477,16 @@ Dictionary GodotMCPServer::_define_tool(const String &p_name, const String &p_de
 	Dictionary tool;
 	tool["name"] = p_name;
 	tool["description"] = p_description;
-	if (!p_schema.is_empty()) {
-		tool["inputSchema"] = p_schema;
-	} else {
+
+	if (p_schema.is_empty()) {
 		Dictionary empty_schema;
 		empty_schema["type"] = "object";
 		empty_schema["properties"] = Dictionary();
 		tool["inputSchema"] = empty_schema;
+	} else {
+		tool["inputSchema"] = p_schema;
 	}
+
 	return tool;
 }
 
@@ -634,6 +632,28 @@ Dictionary GodotMCPServer::_handle_tools_list(const Dictionary &p_params) {
 			"godot_capture_screenshot",
 			"Capture a screenshot from the running game viewport",
 			Dictionary()));
+
+	// Runtime camera control tools.
+	Array camera_control_params;
+	camera_control_params.push_back(Dictionary{ { "name", "action" }, { "type", "string" }, { "description", "Camera action: 'enable', 'disable', 'move', 'look_at', or 'reset'" }, { "required", true } });
+	camera_control_params.push_back(Dictionary{ { "name", "camera_type" }, { "type", "string" }, { "description", "Camera type: '3d' (default) or '2d'" }, { "required", false } });
+	camera_control_params.push_back(Dictionary{ { "name", "position" }, { "type", "object" }, { "description", "Position {x, y, z} for 3D or {x, y} offset for 2D" }, { "required", false } });
+	camera_control_params.push_back(Dictionary{ { "name", "rotation_degrees" }, { "type", "object" }, { "description", "Euler rotation {x, y, z} in degrees (3D only)" }, { "required", false } });
+	camera_control_params.push_back(Dictionary{ { "name", "target" }, { "type", "object" }, { "description", "Look-at target {x, y, z} (3D 'look_at' action)" }, { "required", false } });
+	camera_control_params.push_back(Dictionary{ { "name", "from" }, { "type", "object" }, { "description", "Camera position for 'look_at' action {x, y, z}" }, { "required", false } });
+	camera_control_params.push_back(Dictionary{ { "name", "fov" }, { "type", "number" }, { "description", "Field of view in degrees (3D, default: 75)" }, { "required", false } });
+	camera_control_params.push_back(Dictionary{ { "name", "zoom" }, { "type", "number" }, { "description", "Zoom level (2D, default: 1.0)" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_runtime_camera_control",
+			"Control the debug camera in a running game. Enable camera override, move, look at targets, or reset.",
+			_make_schema(camera_control_params)));
+
+	Array camera_info_params;
+	camera_info_params.push_back(Dictionary{ { "name", "camera_type" }, { "type", "string" }, { "description", "Camera type: '3d' (default) or '2d'" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_get_runtime_camera_info",
+			"Get current camera state from the running game (position, rotation, FOV/zoom)",
+			_make_schema(camera_info_params)));
 
 	Dictionary result;
 	result["tools"] = tools;
@@ -997,13 +1017,10 @@ Variant GodotMCPServer::_coerce_value(const Variant &p_value, Variant::Type p_ta
 
 	// Handle numeric conversions.
 	if (p_value.get_type() == Variant::FLOAT || p_value.get_type() == Variant::INT) {
-		switch (p_target_type) {
-			case Variant::INT:
-				return (int64_t)p_value;
-			case Variant::FLOAT:
-				return (double)p_value;
-			default:
-				break;
+		if (p_target_type == Variant::INT) {
+			return (int64_t)p_value;
+		} else if (p_target_type == Variant::FLOAT) {
+			return (double)p_value;
 		}
 	}
 
@@ -1413,11 +1430,12 @@ Dictionary GodotMCPServer::_tool_select_nodes(const Dictionary &p_args) {
 Dictionary GodotMCPServer::_tool_run_scene(const Dictionary &p_args) {
 #ifdef TOOLS_ENABLED
 	String scene_path = p_args.get("scene_path", "");
+	EditorInterface *editor = EditorInterface::get_singleton();
 
 	if (scene_path.is_empty()) {
-		EditorInterface::get_singleton()->play_current_scene();
+		editor->play_current_scene();
 	} else {
-		EditorInterface::get_singleton()->play_custom_scene(scene_path);
+		editor->play_custom_scene(scene_path);
 	}
 
 	return _success_result("Running scene");
@@ -1635,6 +1653,228 @@ Dictionary GodotMCPServer::_tool_capture_screenshot(const Dictionary &p_args) {
 	result["_image_data"] = base64_data;
 	result["_image_mime"] = "image/png";
 	return result;
+#else
+	return _error_result("Editor functionality not available");
+#endif
+}
+
+Dictionary GodotMCPServer::_camera_control_3d(const String &p_action, const Dictionary &p_args) {
+#ifdef TOOLS_ENABLED
+	ScriptEditorDebugger *debugger = EditorDebuggerNode::get_singleton()->get_current_debugger();
+	if (!debugger || !debugger->is_session_active()) {
+		return _error_result("Debugger session not active");
+	}
+
+	if (p_action == "enable") {
+		debugger->set_camera_override(EditorDebuggerNode::OVERRIDE_INGAME);
+		return _success_result("3D camera override enabled");
+	} else if (p_action == "disable") {
+		debugger->set_camera_override(EditorDebuggerNode::OVERRIDE_NONE);
+		return _success_result("3D camera override disabled");
+	} else if (p_action == "reset") {
+		// Send reset message to restore default camera.
+		Array msg;
+		debugger->send_message("scene:runtime_node_select_reset_camera_3d", msg);
+		return _success_result("3D camera reset to default");
+	} else if (p_action == "move") {
+		// Build transform from position and rotation.
+		Dictionary pos_dict = p_args.get("position", Dictionary());
+		Dictionary rot_dict = p_args.get("rotation_degrees", Dictionary());
+
+		Vector3 position(
+				pos_dict.get("x", 0.0),
+				pos_dict.get("y", 0.0),
+				pos_dict.get("z", 0.0));
+
+		Vector3 rotation_deg(
+				rot_dict.get("x", 0.0),
+				rot_dict.get("y", 0.0),
+				rot_dict.get("z", 0.0));
+		Vector3 rotation_rad(
+				Math::deg_to_rad(rotation_deg.x),
+				Math::deg_to_rad(rotation_deg.y),
+				Math::deg_to_rad(rotation_deg.z));
+
+		Basis basis;
+		basis.set_euler(rotation_rad, EulerOrder::YXZ);
+		Transform3D transform(basis, position);
+
+		double fov = p_args.get("fov", 75.0);
+		double near_clip = 0.05;
+		double far_clip = 4000.0;
+
+		// Message format: transform, is_perspective, fov_or_size, near, far
+		Array msg;
+		msg.push_back(transform);
+		msg.push_back(true); // is_perspective
+		msg.push_back(fov);
+		msg.push_back(near_clip);
+		msg.push_back(far_clip);
+		debugger->send_message("scene:transform_camera_3d", msg);
+
+		return _success_result("3D camera moved",
+				Dictionary{ { "position", Dictionary{ { "x", position.x }, { "y", position.y }, { "z", position.z } } },
+						{ "rotation_degrees", Dictionary{ { "x", rotation_deg.x }, { "y", rotation_deg.y }, { "z", rotation_deg.z } } },
+						{ "fov", fov } });
+	} else if (p_action == "look_at") {
+		Dictionary from_dict = p_args.get("from", Dictionary());
+		Dictionary target_dict = p_args.get("target", Dictionary());
+
+		if (target_dict.is_empty()) {
+			return _error_result("'look_at' action requires 'target' parameter");
+		}
+
+		Vector3 from_pos(
+				from_dict.get("x", 0.0),
+				from_dict.get("y", 0.0),
+				from_dict.get("z", 0.0));
+		Vector3 target(
+				target_dict.get("x", 0.0),
+				target_dict.get("y", 0.0),
+				target_dict.get("z", 0.0));
+
+		// Calculate transform looking at target.
+		Transform3D transform;
+		transform.origin = from_pos;
+		if (from_pos != target) {
+			transform = transform.looking_at(target, Vector3(0, 1, 0));
+		}
+
+		double fov = p_args.get("fov", 75.0);
+		double near_clip = 0.05;
+		double far_clip = 4000.0;
+
+		Array msg;
+		msg.push_back(transform);
+		msg.push_back(true); // is_perspective
+		msg.push_back(fov);
+		msg.push_back(near_clip);
+		msg.push_back(far_clip);
+		debugger->send_message("scene:transform_camera_3d", msg);
+
+		// Extract rotation from transform for response.
+		Vector3 rotation_rad = transform.basis.get_euler(EulerOrder::YXZ);
+		Vector3 rotation_deg(
+				Math::rad_to_deg(rotation_rad.x),
+				Math::rad_to_deg(rotation_rad.y),
+				Math::rad_to_deg(rotation_rad.z));
+
+		return _success_result("3D camera looking at target",
+				Dictionary{ { "position", Dictionary{ { "x", from_pos.x }, { "y", from_pos.y }, { "z", from_pos.z } } },
+						{ "target", Dictionary{ { "x", target.x }, { "y", target.y }, { "z", target.z } } },
+						{ "rotation_degrees", Dictionary{ { "x", rotation_deg.x }, { "y", rotation_deg.y }, { "z", rotation_deg.z } } },
+						{ "fov", fov } });
+	}
+
+	return _error_result("Unknown 3D camera action: " + p_action);
+#else
+	return _error_result("Editor functionality not available");
+#endif
+}
+
+Dictionary GodotMCPServer::_camera_control_2d(const String &p_action, const Dictionary &p_args) {
+#ifdef TOOLS_ENABLED
+	ScriptEditorDebugger *debugger = EditorDebuggerNode::get_singleton()->get_current_debugger();
+	if (!debugger || !debugger->is_session_active()) {
+		return _error_result("Debugger session not active");
+	}
+
+	if (p_action == "enable") {
+		debugger->set_camera_override(EditorDebuggerNode::OVERRIDE_INGAME);
+		return _success_result("2D camera override enabled");
+	} else if (p_action == "disable") {
+		debugger->set_camera_override(EditorDebuggerNode::OVERRIDE_NONE);
+		return _success_result("2D camera override disabled");
+	} else if (p_action == "reset") {
+		// Reset 2D camera by sending identity transform.
+		Transform2D transform;
+		Array msg;
+		msg.push_back(transform);
+		debugger->send_message("scene:transform_camera_2d", msg);
+		return _success_result("2D camera reset to default");
+	} else if (p_action == "move") {
+		Dictionary pos_dict = p_args.get("position", Dictionary());
+		double zoom = p_args.get("zoom", 1.0);
+
+		Vector2 offset(
+				pos_dict.get("x", 0.0),
+				pos_dict.get("y", 0.0));
+
+		// Build transform: the scene debugger expects a transform where:
+		// - origin (after affine_inverse) becomes the camera offset
+		// - scale becomes the zoom
+		// So we need: transform.affine_inverse().get_origin() = offset
+		// And: transform.get_scale() = zoom
+		Transform2D transform;
+		transform = transform.scaled(Vector2(zoom, zoom));
+		transform.set_origin(-offset * zoom); // Invert because affine_inverse will be applied.
+
+		Array msg;
+		msg.push_back(transform);
+		debugger->send_message("scene:transform_camera_2d", msg);
+
+		return _success_result("2D camera moved",
+				Dictionary{ { "offset", Dictionary{ { "x", offset.x }, { "y", offset.y } } },
+						{ "zoom", zoom } });
+	}
+
+	return _error_result("Unknown 2D camera action: " + p_action + ". 2D cameras support: enable, disable, reset, move");
+#else
+	return _error_result("Editor functionality not available");
+#endif
+}
+
+Dictionary GodotMCPServer::_tool_runtime_camera_control(const Dictionary &p_args) {
+#ifdef TOOLS_ENABLED
+	if (!EditorInterface::get_singleton()->is_playing_scene()) {
+		return _error_result("No game running. Start a scene first with godot_run_scene.");
+	}
+
+	String action = p_args.get("action", "");
+	if (action.is_empty()) {
+		return _error_result("Missing required 'action' parameter. Use: enable, disable, move, look_at, or reset");
+	}
+
+	String camera_type = p_args.get("camera_type", "3d");
+	if (camera_type == "3d") {
+		return _camera_control_3d(action, p_args);
+	}
+	if (camera_type == "2d") {
+		return _camera_control_2d(action, p_args);
+	}
+	return _error_result("Invalid camera_type: " + camera_type + ". Use '3d' or '2d'");
+#else
+	return _error_result("Editor functionality not available");
+#endif
+}
+
+Dictionary GodotMCPServer::_tool_get_runtime_camera_info(const Dictionary &p_args) {
+#ifdef TOOLS_ENABLED
+	if (!EditorInterface::get_singleton()->is_playing_scene()) {
+		return _error_result("No game running. Start a scene first with godot_run_scene.");
+	}
+
+	ScriptEditorDebugger *debugger = EditorDebuggerNode::get_singleton()->get_current_debugger();
+	if (!debugger || !debugger->is_session_active()) {
+		return _error_result("Debugger session not active");
+	}
+
+	String camera_type = p_args.get("camera_type", "3d");
+	EditorDebuggerNode::CameraOverride override_state = debugger->get_camera_override();
+
+	Dictionary result;
+	result["camera_type"] = camera_type;
+	result["override_enabled"] = override_state != EditorDebuggerNode::OVERRIDE_NONE;
+
+	if (override_state == EditorDebuggerNode::OVERRIDE_NONE) {
+		result["note"] = "Camera override is disabled. Enable it first with action 'enable' to control the camera.";
+	} else if (override_state == EditorDebuggerNode::OVERRIDE_EDITORS) {
+		result["note"] = "Camera is currently controlled by editor viewports.";
+	} else {
+		result["note"] = "Camera override is enabled and can be controlled via MCP.";
+	}
+
+	return _success_result("Camera info retrieved", result);
 #else
 	return _error_result("Editor functionality not available");
 #endif
