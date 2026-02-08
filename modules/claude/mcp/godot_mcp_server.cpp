@@ -55,6 +55,10 @@ const HashSet<String> GodotMCPServer::ALLOWED_RESOURCE_TYPES = {
 	"RectangleShape2D", "CircleShape2D", "CapsuleShape2D",
 	"ConvexPolygonShape2D", "ConcavePolygonShape2D", "SegmentShape2D",
 	"SeparationRayShape2D", "WorldBoundaryShape2D",
+	// Particles
+	"ParticleProcessMaterial",
+	// Animation
+	"AnimationLibrary",
 	// Other safe resources
 	"Gradient", "Curve", "Curve2D", "Curve3D",
 	"Environment", "Sky", "PhysicsMaterial",
@@ -87,16 +91,34 @@ GodotMCPServer::GodotMCPServer() {
 	server.instantiate();
 
 	// Initialize tool dispatch map.
+	// Scene tools.
 	tool_handlers["godot_get_scene_tree"] = &GodotMCPServer::_tool_get_scene_tree;
 	tool_handlers["godot_add_node"] = &GodotMCPServer::_tool_add_node;
 	tool_handlers["godot_remove_node"] = &GodotMCPServer::_tool_remove_node;
 	tool_handlers["godot_set_property"] = &GodotMCPServer::_tool_set_property;
 	tool_handlers["godot_get_property"] = &GodotMCPServer::_tool_get_property;
+	tool_handlers["godot_save_scene"] = &GodotMCPServer::_tool_save_scene;
+	tool_handlers["godot_new_scene"] = &GodotMCPServer::_tool_new_scene;
+	tool_handlers["godot_open_scene"] = &GodotMCPServer::_tool_open_scene;
+	tool_handlers["godot_instance_scene"] = &GodotMCPServer::_tool_instance_scene;
+
+	// Script tools.
 	tool_handlers["godot_create_script"] = &GodotMCPServer::_tool_create_script;
 	tool_handlers["godot_read_script"] = &GodotMCPServer::_tool_read_script;
 	tool_handlers["godot_modify_script"] = &GodotMCPServer::_tool_modify_script;
+
+	// Selection tools.
 	tool_handlers["godot_get_selected_nodes"] = &GodotMCPServer::_tool_get_selected_nodes;
 	tool_handlers["godot_select_nodes"] = &GodotMCPServer::_tool_select_nodes;
+
+	// Signal tools.
+	tool_handlers["godot_connect_signal"] = &GodotMCPServer::_tool_connect_signal;
+	tool_handlers["godot_disconnect_signal"] = &GodotMCPServer::_tool_disconnect_signal;
+
+	// Project tools.
+	tool_handlers["godot_project_settings"] = &GodotMCPServer::_tool_project_settings;
+
+	// Runtime tools.
 	tool_handlers["godot_run_scene"] = &GodotMCPServer::_tool_run_scene;
 	tool_handlers["godot_stop_scene"] = &GodotMCPServer::_tool_stop_scene;
 	tool_handlers["godot_get_runtime_scene_tree"] = &GodotMCPServer::_tool_get_runtime_scene_tree;

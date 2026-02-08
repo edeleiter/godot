@@ -16,6 +16,9 @@ def get_doc_classes():
         "MCPSceneSerializer",
         "ClaudeMCPDock",
         "ClaudeEditorPlugin",
+        "ConPtyProcess",
+        "AnsiTerminalState",
+        "ClaudeTerminalDock",
     ]
 
 

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  claude_editor_plugin.h                                                */
+/*  con_pty_process.h                                                     */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,41 +28,59 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#ifndef CLAUDE_EDITOR_PLUGIN_H
-#define CLAUDE_EDITOR_PLUGIN_H
-
-#include "../mcp/godot_mcp_server.h"
-#include "claude_mcp_dock.h"
-#include "editor/plugins/editor_plugin.h"
+#pragma once
 
 #ifdef WINDOWS_ENABLED
-class ClaudeTerminalDock;
-#endif
 
-class ClaudeEditorPlugin : public EditorPlugin {
-	GDCLASS(ClaudeEditorPlugin, EditorPlugin);
+#include "core/object/ref_counted.h"
+#include "core/os/mutex.h"
+#include "core/os/thread.h"
+#include "core/templates/safe_refcount.h"
+
+class ConPtyProcess : public RefCounted {
+	GDCLASS(ConPtyProcess, RefCounted);
 
 private:
-	ClaudeMCPDock *dock = nullptr;
-#ifdef WINDOWS_ENABLED
-	ClaudeTerminalDock *terminal_dock = nullptr;
-#endif
-	Ref<GodotMCPServer> mcp_server;
-	bool started = false;
+	// Win32 handles stored as void* to avoid including <windows.h> in the header
+	// (windows.h defines macros like IGNORE that break Godot headers).
+	void *pty_handle = nullptr;
+	void *pipe_in = nullptr; // Parent writes to child stdin.
+	void *pipe_out = nullptr; // Parent reads from child stdout.
+	void *pipe_pty_in = nullptr; // PTY side of stdin pipe.
+	void *pipe_pty_out = nullptr; // PTY side of stdout pipe.
+	void *process_handle = nullptr; // Child process handle.
+	void *thread_handle = nullptr; // Child primary thread handle.
 
-	void _start_server();
+	Thread read_thread;
+	Mutex output_mutex;
+	Vector<uint8_t> output_buffer;
+	SafeFlag exit_flag;
+
+	int cols = 80;
+	int rows = 24;
+	bool running = false;
+
+	static void _read_thread_func(void *p_userdata);
+	void _cleanup();
 
 protected:
 	static void _bind_methods();
-	void _notification(int p_what);
 
 public:
-	virtual String get_plugin_name() const override { return "Claude MCP"; }
+	Error start(const String &p_command, int p_cols = 80, int p_rows = 24);
+	void stop();
+	bool is_running() const { return running; }
 
-	Ref<GodotMCPServer> get_mcp_server() const { return mcp_server; }
+	void write_input(const PackedByteArray &p_data);
+	PackedByteArray drain_output();
 
-	ClaudeEditorPlugin();
-	~ClaudeEditorPlugin();
+	Error resize(int p_cols, int p_rows);
+
+	int get_cols() const { return cols; }
+	int get_rows() const { return rows; }
+
+	ConPtyProcess();
+	~ConPtyProcess();
 };
 
-#endif // CLAUDE_EDITOR_PLUGIN_H
+#endif // WINDOWS_ENABLED

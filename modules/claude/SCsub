@@ -15,6 +15,10 @@ if env.editor_build:
     module_sources += Glob("util/*.cpp")
     module_sources += Glob("editor/*.cpp")
 
+    # Terminal (ConPTY) sources are Windows-only.
+    if env["platform"] == "windows":
+        module_sources += Glob("terminal/*.cpp")
+
     # Embed the Python bridge script as a C++ string literal.
     def make_bridge_script(target, source, env):
         with open(str(source[0]), "r", encoding="utf-8") as f:

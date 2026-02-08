@@ -142,14 +142,14 @@ Then fill in descriptions in the generated XML.
 
 ## Claude MCP Module
 
-The `modules/claude/` module provides an MCP server that exposes 17 Godot editor tools to Claude Code. It runs a TCP server inside the editor process, with a Python bridge (`bridge/claude_mcp_bridge.py`) translating between MCP's stdio protocol and TCP.
+The `modules/claude/` module provides an MCP server that exposes 24 Godot editor tools to Claude Code. It runs a TCP server inside the editor process, with a Python bridge (`bridge/claude_mcp_bridge.py`) translating between MCP's stdio protocol and TCP.
 
 ### Key Implementation Files
 
 | File | Purpose |
 |------|---------|
 | `mcp/godot_mcp_server.cpp` | Server core, protocol handling, allowed resource types |
-| `mcp/godot_mcp_tools_schema.cpp` | All 17 tool definitions and parameter schemas |
+| `mcp/godot_mcp_tools_schema.cpp` | All 24 tool definitions and parameter schemas |
 | `mcp/godot_mcp_tools_scene.cpp` | Scene, property, and selection tool implementations |
 | `mcp/godot_mcp_tools_script.cpp` | Script create/read/modify implementations |
 | `mcp/godot_mcp_tools_runtime.cpp` | Runtime scene tree, output, screenshot, camera tools |

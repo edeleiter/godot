@@ -91,17 +91,34 @@ private:
 	Dictionary _define_tool(const String &p_name, const String &p_description, const Dictionary &p_schema);
 	Dictionary _make_schema(const Array &p_params);
 
-	// Tool implementations
+	// Tool implementations — Scene
 	Dictionary _tool_get_scene_tree(const Dictionary &p_args);
 	Dictionary _tool_add_node(const Dictionary &p_args);
 	Dictionary _tool_remove_node(const Dictionary &p_args);
 	Dictionary _tool_set_property(const Dictionary &p_args);
 	Dictionary _tool_get_property(const Dictionary &p_args);
+	Dictionary _tool_save_scene(const Dictionary &p_args);
+	Dictionary _tool_new_scene(const Dictionary &p_args);
+	Dictionary _tool_open_scene(const Dictionary &p_args);
+	Dictionary _tool_instance_scene(const Dictionary &p_args);
+
+	// Tool implementations — Script
 	Dictionary _tool_create_script(const Dictionary &p_args);
 	Dictionary _tool_read_script(const Dictionary &p_args);
 	Dictionary _tool_modify_script(const Dictionary &p_args);
+
+	// Tool implementations — Selection
 	Dictionary _tool_get_selected_nodes(const Dictionary &p_args);
 	Dictionary _tool_select_nodes(const Dictionary &p_args);
+
+	// Tool implementations — Signals
+	Dictionary _tool_connect_signal(const Dictionary &p_args);
+	Dictionary _tool_disconnect_signal(const Dictionary &p_args);
+
+	// Tool implementations — Project
+	Dictionary _tool_project_settings(const Dictionary &p_args);
+
+	// Tool implementations — Runtime
 	Dictionary _tool_run_scene(const Dictionary &p_args);
 	Dictionary _tool_stop_scene(const Dictionary &p_args);
 	Dictionary _tool_get_runtime_scene_tree(const Dictionary &p_args);
@@ -145,6 +162,7 @@ private:
 	// Validation helpers
 	bool _validate_node_path(const String &p_path, String &r_error);
 	bool _validate_script_path(const String &p_path, String &r_error);
+	bool _validate_scene_path(const String &p_path, String &r_error);
 	bool _validate_node_type(const String &p_type, String &r_error);
 	bool _validate_resource_type(const String &p_type, String &r_error);
 	Node *_resolve_node_path(const String &p_path);

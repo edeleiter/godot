@@ -30,8 +30,13 @@
 
 #include "claude_editor_plugin.h"
 
+#include "editor/docks/editor_dock_manager.h"
 #include "editor/editor_node.h"
 #include "editor/settings/editor_settings.h"
+
+#ifdef WINDOWS_ENABLED
+#include "claude_terminal_dock.h"
+#endif
 
 void ClaudeEditorPlugin::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_mcp_server"), &ClaudeEditorPlugin::get_mcp_server);
@@ -44,11 +49,20 @@ ClaudeEditorPlugin::ClaudeEditorPlugin() {
 	_EDITOR_DEF("network/claude_mcp/port", GodotMCPServer::DEFAULT_PORT);
 	_EDITOR_DEF("network/claude_mcp/host", String("127.0.0.1"));
 	_EDITOR_DEF("network/claude_mcp/autostart", false);
+	_EDITOR_DEF("network/claude_mcp/terminal_command", String("wsl.exe"));
+	_EDITOR_DEF("network/claude_mcp/terminal_font_size", 0); // 0 = use editor theme default.
+	_EDITOR_DEF("network/claude_mcp/terminal_scrollback_lines", 10000);
 
-	// Create and add dock.
+	// Create and add MCP dock.
 	dock = memnew(ClaudeMCPDock);
 	dock->set_mcp_server(mcp_server);
 	add_control_to_dock(DOCK_SLOT_RIGHT_UL, dock);
+
+#ifdef WINDOWS_ENABLED
+	// Create and add terminal dock (bottom panel).
+	terminal_dock = memnew(ClaudeTerminalDock);
+	EditorDockManager::get_singleton()->add_dock(terminal_dock);
+#endif
 
 	set_process_internal(true);
 }
@@ -63,6 +77,14 @@ ClaudeEditorPlugin::~ClaudeEditorPlugin() {
 		memdelete(dock);
 		dock = nullptr;
 	}
+
+#ifdef WINDOWS_ENABLED
+	if (terminal_dock) {
+		EditorDockManager::get_singleton()->remove_dock(terminal_dock);
+		memdelete(terminal_dock);
+		terminal_dock = nullptr;
+	}
+#endif
 }
 
 void ClaudeEditorPlugin::_notification(int p_what) {

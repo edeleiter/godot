@@ -38,6 +38,11 @@
 #include "editor/plugins/editor_plugin.h"
 #include "mcp/godot_mcp_server.h"
 #include "util/mcp_scene_serializer.h"
+#ifdef WINDOWS_ENABLED
+#include "editor/claude_terminal_dock.h"
+#include "terminal/ansi_terminal_state.h"
+#include "terminal/con_pty_process.h"
+#endif
 #endif
 
 void initialize_claude_module(ModuleInitializationLevel p_level) {
@@ -47,6 +52,12 @@ void initialize_claude_module(ModuleInitializationLevel p_level) {
 		GDREGISTER_CLASS(MCPSceneSerializer);
 		GDREGISTER_CLASS(ClaudeMCPDock);
 		GDREGISTER_CLASS(ClaudeEditorPlugin);
+#ifdef WINDOWS_ENABLED
+		GDREGISTER_CLASS(ConPtyProcess);
+		GDREGISTER_CLASS(AnsiTerminalState);
+		GDREGISTER_CLASS(TerminalView);
+		GDREGISTER_CLASS(ClaudeTerminalDock);
+#endif
 		EditorPlugins::add_by_type<ClaudeEditorPlugin>();
 	}
 #endif

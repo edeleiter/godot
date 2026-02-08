@@ -120,6 +120,70 @@ Dictionary GodotMCPServer::_handle_tools_list(const Dictionary &p_params) {
 			"Get a property value from a node",
 			_make_schema(get_prop_params)));
 
+	// Scene persistence tools.
+	Array save_scene_params;
+	save_scene_params.push_back(Dictionary{ { "name", "path" }, { "type", "string" }, { "description", "Optional path for 'save as' (e.g., 'res://levels/level1.tscn'). If empty, saves to the current scene's existing path." }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_save_scene",
+			"Save the current scene to disk. Optionally specify a new path for 'save as'.",
+			_make_schema(save_scene_params)));
+
+	Array new_scene_params;
+	new_scene_params.push_back(Dictionary{ { "name", "root_type" }, { "type", "string" }, { "description", "Node type for the scene root (e.g., 'Node3D', 'Node2D', 'Control')" }, { "required", true } });
+	new_scene_params.push_back(Dictionary{ { "name", "root_name" }, { "type", "string" }, { "description", "Name for the root node (defaults to root_type)" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_new_scene",
+			"Create a new empty scene with a typed root node and make it the active edited scene",
+			_make_schema(new_scene_params)));
+
+	Array open_scene_params;
+	open_scene_params.push_back(Dictionary{ { "name", "path" }, { "type", "string" }, { "description", "Resource path to the scene file (e.g., 'res://main.tscn')" }, { "required", true } });
+	tools.push_back(_define_tool(
+			"godot_open_scene",
+			"Open an existing scene file in the editor",
+			_make_schema(open_scene_params)));
+
+	Array instance_scene_params;
+	instance_scene_params.push_back(Dictionary{ { "name", "scene_path" }, { "type", "string" }, { "description", "Resource path to the scene to instance (e.g., 'res://enemies/enemy.tscn')" }, { "required", true } });
+	instance_scene_params.push_back(Dictionary{ { "name", "parent_path" }, { "type", "string" }, { "description", "Path to parent node in the current scene" }, { "required", true } });
+	instance_scene_params.push_back(Dictionary{ { "name", "node_name" }, { "type", "string" }, { "description", "Name for the instanced node (defaults to scene root name)" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_instance_scene",
+			"Instance a PackedScene as a child of a node in the current scene. This is Godot's composition/prefab pattern.",
+			_make_schema(instance_scene_params)));
+
+	// Signal tools.
+	Array connect_signal_params;
+	connect_signal_params.push_back(Dictionary{ { "name", "source_path" }, { "type", "string" }, { "description", "Path to the node that emits the signal" }, { "required", true } });
+	connect_signal_params.push_back(Dictionary{ { "name", "signal_name" }, { "type", "string" }, { "description", "Name of the signal (e.g., 'pressed', 'body_entered')" }, { "required", true } });
+	connect_signal_params.push_back(Dictionary{ { "name", "target_path" }, { "type", "string" }, { "description", "Path to the node that receives the signal" }, { "required", true } });
+	connect_signal_params.push_back(Dictionary{ { "name", "method_name" }, { "type", "string" }, { "description", "Method to call on the target node" }, { "required", true } });
+	tools.push_back(_define_tool(
+			"godot_connect_signal",
+			"Connect a signal from one node to a method on another node. The primary Godot event/messaging pattern.",
+			_make_schema(connect_signal_params)));
+
+	Array disconnect_signal_params;
+	disconnect_signal_params.push_back(Dictionary{ { "name", "source_path" }, { "type", "string" }, { "description", "Path to the node that emits the signal" }, { "required", true } });
+	disconnect_signal_params.push_back(Dictionary{ { "name", "signal_name" }, { "type", "string" }, { "description", "Name of the signal" }, { "required", true } });
+	disconnect_signal_params.push_back(Dictionary{ { "name", "target_path" }, { "type", "string" }, { "description", "Path to the node that receives the signal" }, { "required", true } });
+	disconnect_signal_params.push_back(Dictionary{ { "name", "method_name" }, { "type", "string" }, { "description", "Method name on the target" }, { "required", true } });
+	tools.push_back(_define_tool(
+			"godot_disconnect_signal",
+			"Disconnect a signal connection between two nodes",
+			_make_schema(disconnect_signal_params)));
+
+	// Project settings tool.
+	Array project_settings_params;
+	project_settings_params.push_back(Dictionary{ { "name", "action" }, { "type", "string" }, { "description", "Action: 'get', 'set', or 'list'" }, { "required", true } });
+	project_settings_params.push_back(Dictionary{ { "name", "setting" }, { "type", "string" }, { "description", "Setting path (e.g., 'display/window/size/viewport_width'). Required for 'get' and 'set'." }, { "required", false } });
+	project_settings_params.push_back(Dictionary{ { "name", "value" }, { "description", "New value for the setting (required for 'set')" }, { "required", false } });
+	project_settings_params.push_back(Dictionary{ { "name", "prefix" }, { "type", "string" }, { "description", "Filter prefix for 'list' action (e.g., 'display/window', 'input/'). If empty, lists common settings." }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_project_settings",
+			"Get, set, or list project settings (window size, physics, input map, rendering, etc.)",
+			_make_schema(project_settings_params)));
+
 	// Script tools.
 	Array create_script_params;
 	create_script_params.push_back(Dictionary{ { "name", "path" }, { "type", "string" }, { "description", "Resource path (must start with 'res://')" }, { "required", true } });

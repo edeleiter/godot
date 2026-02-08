@@ -80,6 +80,35 @@ bool GodotMCPServer::_validate_script_path(const String &p_path, String &r_error
 	return true;
 }
 
+bool GodotMCPServer::_validate_scene_path(const String &p_path, String &r_error) {
+	if (!p_path.begins_with("res://")) {
+		r_error = "Path must start with res://";
+		return false;
+	}
+
+	if (p_path.contains("..")) {
+		r_error = "Path cannot contain parent traversal (..)";
+		return false;
+	}
+
+	if (p_path.contains("/.") || p_path.begins_with("res://.")) {
+		r_error = "Cannot access hidden files";
+		return false;
+	}
+
+	if (!p_path.ends_with(".tscn") && !p_path.ends_with(".scn")) {
+		r_error = "Scene must have .tscn or .scn extension";
+		return false;
+	}
+
+	if (p_path.length() > 256) {
+		r_error = "Path too long";
+		return false;
+	}
+
+	return true;
+}
+
 bool GodotMCPServer::_validate_node_type(const String &p_type, String &r_error) {
 	if (p_type.is_empty()) {
 		r_error = "Node type is empty";

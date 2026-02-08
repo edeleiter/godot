@@ -4,8 +4,11 @@ This module integrates Claude AI with the Godot editor via the **Model Context P
 
 ## Features
 
-- **MCP Server**: Exposes Godot editor actions as standardized MCP tools
+- **MCP Server**: Exposes 24 Godot editor tools as standardized MCP operations
+- **Scene Persistence**: Save, create, open, and instance scenes — full game development workflow
 - **Scene Manipulation**: Add, remove, and modify nodes with full undo/redo support
+- **Signal Wiring**: Connect and disconnect signals between nodes via the editor
+- **Project Settings**: Configure window size, physics, input maps, rendering, and more
 - **Script Generation**: Create and edit GDScript files
 - **Context Awareness**: Claude understands your scene structure
 - **Works with Claude Code**: Use the Claude Code CLI or VS Code extension
@@ -51,6 +54,7 @@ claude
 
 ## Available MCP Tools
 
+### Scene Manipulation
 | Tool | Description |
 |------|-------------|
 | `godot_get_scene_tree` | Get current scene structure as JSON |
@@ -58,11 +62,42 @@ claude
 | `godot_remove_node` | Remove a node from the scene tree |
 | `godot_set_property` | Set a property on a node |
 | `godot_get_property` | Get a property value from a node |
+
+### Scene Persistence
+| Tool | Description |
+|------|-------------|
+| `godot_save_scene` | Save current scene (or "save as" with path) |
+| `godot_new_scene` | Create empty scene with typed root |
+| `godot_open_scene` | Open existing scene file |
+| `godot_instance_scene` | Instance a PackedScene as child (prefab pattern) |
+
+### Signals
+| Tool | Description |
+|------|-------------|
+| `godot_connect_signal` | Connect signal between nodes |
+| `godot_disconnect_signal` | Disconnect signal connection |
+
+### Scripts
+| Tool | Description |
+|------|-------------|
 | `godot_create_script` | Create a new GDScript file |
 | `godot_read_script` | Read script content |
 | `godot_modify_script` | Modify an existing script |
+
+### Project Settings
+| Tool | Description |
+|------|-------------|
+| `godot_project_settings` | Get/set/list project settings |
+
+### Selection
+| Tool | Description |
+|------|-------------|
 | `godot_get_selected_nodes` | Get currently selected nodes |
 | `godot_select_nodes` | Select nodes in the editor |
+
+### Runtime (requires running game)
+| Tool | Description |
+|------|-------------|
 | `godot_run_scene` | Run the scene |
 | `godot_stop_scene` | Stop running scene |
 | `godot_get_runtime_scene_tree` | Get scene tree from running game |
@@ -142,8 +177,10 @@ modules/claude/
 ├── mcp/
 │   ├── godot_mcp_server.*           # MCP protocol server (TCP)
 │   ├── godot_mcp_tools_schema.cpp   # Tool definitions & parameter schemas
-│   ├── godot_mcp_tools_scene.cpp    # Scene, property, and selection tools
+│   ├── godot_mcp_tools_scene.cpp    # Scene, property, selection, persistence, and instancing tools
 │   ├── godot_mcp_tools_script.cpp   # Script create/read/modify tools
+│   ├── godot_mcp_tools_signals.cpp  # Signal connect/disconnect tools
+│   ├── godot_mcp_tools_project.cpp  # Project settings get/set/list tool
 │   ├── godot_mcp_tools_runtime.cpp  # Runtime, screenshot, and camera tools
 │   └── godot_mcp_validation.cpp     # Path/type validation & type coercion
 ├── util/
@@ -153,6 +190,8 @@ modules/claude/
 │   └── claude_editor_plugin.*   # Plugin (lifecycle + polling)
 ├── bridge/
 │   └── claude_mcp_bridge.py     # Stdio-to-TCP bridge
+├── skill/
+│   └── godot-game-dev.md       # Game development skill (recipes & patterns)
 ├── doc_classes/                  # XML class documentation
 │   ├── GodotMCPServer.xml
 │   ├── MCPSceneSerializer.xml
