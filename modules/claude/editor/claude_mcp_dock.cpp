@@ -39,11 +39,15 @@
 #include "editor/file_system/editor_paths.h"
 #include "editor/settings/editor_settings.h"
 #include "scene/gui/button.h"
+#include "scene/gui/check_box.h"
+#include "scene/gui/dialogs.h"
 #include "scene/gui/item_list.h"
 #include "scene/gui/label.h"
+#include "scene/gui/line_edit.h"
 #include "scene/gui/margin_container.h"
 #include "scene/gui/rich_text_label.h"
 #include "scene/gui/separator.h"
+#include "scene/gui/spin_box.h"
 
 void ClaudeMCPDock::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_mcp_server", "server"), &ClaudeMCPDock::set_mcp_server);
@@ -68,6 +72,9 @@ void ClaudeMCPDock::_notification(int p_what) {
 		case NOTIFICATION_THEME_CHANGED: {
 			if (toggle_button) {
 				update_status();
+			}
+			if (settings_button) {
+				settings_button->set_button_icon(get_editor_theme_icon(SNAME("Tools")));
 			}
 		} break;
 
@@ -102,6 +109,12 @@ void ClaudeMCPDock::_build_ui() {
 	toggle_button->set_text("Start");
 	toggle_button->connect("pressed", callable_mp(this, &ClaudeMCPDock::_on_toggle_pressed));
 	status_hbox->add_child(toggle_button);
+
+	settings_button = memnew(Button);
+	settings_button->set_theme_type_variation(SceneStringName(FlatButton));
+	settings_button->set_tooltip_text(TTR("MCP Server Settings"));
+	settings_button->connect(SceneStringName(pressed), callable_mp(this, &ClaudeMCPDock::_on_settings_pressed));
+	status_hbox->add_child(settings_button);
 
 	// Clients label.
 	clients_label = memnew(Label);
@@ -229,7 +242,7 @@ int ClaudeMCPDock::_get_current_port() const {
 	if (mcp_server.is_valid() && mcp_server->is_running()) {
 		return mcp_server->get_port();
 	}
-	return GodotMCPServer::DEFAULT_PORT;
+	return EDITOR_GET("network/claude_mcp/port");
 }
 
 String ClaudeMCPDock::_generate_config_json(const String &p_bridge_path, int p_port) const {
@@ -281,7 +294,6 @@ void ClaudeMCPDock::_on_tool_called(const String &p_name, const Dictionary &p_ar
 	String timestamp = Time::get_singleton()->get_time_string_from_system();
 	String entry = vformat("[%s] %s", timestamp, p_name);
 
-	// Add to top of list.
 	log_list->add_item(entry);
 
 	// Keep only last 50 entries.
@@ -293,4 +305,148 @@ void ClaudeMCPDock::_on_tool_called(const String &p_name, const Dictionary &p_ar
 void ClaudeMCPDock::_on_copy_config_pressed() {
 	String config = _generate_config_json(_get_bridge_path(), _get_current_port());
 	DisplayServer::get_singleton()->clipboard_set(config);
+}
+
+void ClaudeMCPDock::_on_settings_pressed() {
+	if (!settings_dialog) {
+		_build_settings_dialog();
+	}
+
+	// Populate controls from current settings (block signals to avoid
+	// triggering saves and restart hints during population).
+	port_spinbox->set_block_signals(true);
+	port_spinbox->set_value((int)EDITOR_GET("network/claude_mcp/port"));
+	port_spinbox->set_block_signals(false);
+	host_edit->set_text(EDITOR_GET("network/claude_mcp/host"));
+	autostart_check->set_pressed(EDITOR_GET("network/claude_mcp/autostart"));
+
+	// Hide restart hint whenever dialog opens.
+	restart_hint_label->set_visible(false);
+	restart_server_button->set_visible(false);
+
+	settings_dialog->popup_centered(Size2(380, 0));
+}
+
+void ClaudeMCPDock::_on_settings_confirmed() {
+	// Save host from LineEdit (which only fires text_submitted on Enter, not on OK click).
+	_on_host_changed(host_edit->get_text());
+}
+
+void ClaudeMCPDock::_build_settings_dialog() {
+	settings_dialog = memnew(AcceptDialog);
+	settings_dialog->set_title(TTR("MCP Server Settings"));
+	settings_dialog->connect("confirmed", callable_mp(this, &ClaudeMCPDock::_on_settings_confirmed));
+	add_child(settings_dialog);
+
+	VBoxContainer *vbox = memnew(VBoxContainer);
+	settings_dialog->add_child(vbox);
+
+	// Port.
+	HBoxContainer *port_hbox = memnew(HBoxContainer);
+	vbox->add_child(port_hbox);
+
+	Label *port_label = memnew(Label);
+	port_label->set_text(TTR("Port:"));
+	port_label->set_custom_minimum_size(Size2(120, 0));
+	port_hbox->add_child(port_label);
+
+	port_spinbox = memnew(SpinBox);
+	port_spinbox->set_min(1024);
+	port_spinbox->set_max(65535);
+	port_spinbox->set_step(1);
+	port_spinbox->set_h_size_flags(SIZE_EXPAND_FILL);
+	port_spinbox->connect(SceneStringName(value_changed), callable_mp(this, &ClaudeMCPDock::_on_port_changed));
+	port_hbox->add_child(port_spinbox);
+
+	// Host.
+	HBoxContainer *host_hbox = memnew(HBoxContainer);
+	vbox->add_child(host_hbox);
+
+	Label *host_label = memnew(Label);
+	host_label->set_text(TTR("Host:"));
+	host_label->set_custom_minimum_size(Size2(120, 0));
+	host_hbox->add_child(host_label);
+
+	host_edit = memnew(LineEdit);
+	host_edit->set_h_size_flags(SIZE_EXPAND_FILL);
+	host_edit->connect("text_submitted", callable_mp(this, &ClaudeMCPDock::_on_host_changed));
+	host_hbox->add_child(host_edit);
+
+	// Autostart.
+	HBoxContainer *autostart_hbox = memnew(HBoxContainer);
+	vbox->add_child(autostart_hbox);
+
+	Label *autostart_label = memnew(Label);
+	autostart_label->set_text(TTR("Autostart:"));
+	autostart_label->set_custom_minimum_size(Size2(120, 0));
+	autostart_hbox->add_child(autostart_label);
+
+	autostart_check = memnew(CheckBox);
+	autostart_check->connect("toggled", callable_mp(this, &ClaudeMCPDock::_on_autostart_toggled));
+	autostart_hbox->add_child(autostart_check);
+
+	// Restart hint (hidden by default).
+	vbox->add_child(memnew(HSeparator));
+
+	restart_hint_label = memnew(Label);
+	restart_hint_label->set_text(TTR("Port or host changed. Restart server to apply."));
+	restart_hint_label->add_theme_color_override("font_color", Color(1.0, 0.8, 0.3));
+	restart_hint_label->set_autowrap_mode(TextServer::AUTOWRAP_WORD);
+	restart_hint_label->set_visible(false);
+	vbox->add_child(restart_hint_label);
+
+	restart_server_button = memnew(Button);
+	restart_server_button->set_text(TTR("Restart Server Now"));
+	restart_server_button->connect(SceneStringName(pressed), callable_mp(this, &ClaudeMCPDock::_on_restart_server_pressed));
+	restart_server_button->set_visible(false);
+	vbox->add_child(restart_server_button);
+}
+
+void ClaudeMCPDock::_on_port_changed(double p_value) {
+	_set_setting("network/claude_mcp/port", (int)p_value);
+	_update_config_snippet();
+
+	if (mcp_server.is_valid() && mcp_server->is_running()) {
+		restart_hint_label->set_visible(true);
+		restart_server_button->set_visible(true);
+	}
+}
+
+void ClaudeMCPDock::_on_host_changed(const String &p_text) {
+	_set_setting("network/claude_mcp/host", p_text);
+
+	if (mcp_server.is_valid() && mcp_server->is_running()) {
+		restart_hint_label->set_visible(true);
+		restart_server_button->set_visible(true);
+	}
+}
+
+void ClaudeMCPDock::_on_autostart_toggled(bool p_enabled) {
+	_set_setting("network/claude_mcp/autostart", p_enabled);
+}
+
+void ClaudeMCPDock::_on_restart_server_pressed() {
+	if (!mcp_server.is_valid()) {
+		return;
+	}
+
+	if (mcp_server->is_running()) {
+		mcp_server->stop();
+	}
+
+	int port = EDITOR_GET("network/claude_mcp/port");
+	String host = EDITOR_GET("network/claude_mcp/host");
+	Error err = mcp_server->start(port, host);
+	if (err == OK) {
+		restart_hint_label->set_visible(false);
+		restart_server_button->set_visible(false);
+	}
+
+	update_status();
+}
+
+void ClaudeMCPDock::_set_setting(const String &p_key, const Variant &p_value) {
+	EditorSettings::get_singleton()->set(p_key, p_value);
+	EditorSettings::get_singleton()->notify_changes();
+	EditorSettings::get_singleton()->save();
 }

@@ -40,6 +40,9 @@
 #include "scene/gui/scroll_bar.h"
 #include "scene/gui/tab_bar.h"
 
+class AcceptDialog;
+class LineEdit;
+class SpinBox;
 class Timer;
 
 // Renders a terminal character grid via custom _draw().
@@ -103,6 +106,7 @@ public:
 
 	void clear_selection();
 	void update_scrollbar();
+	void refresh_font();
 
 	TerminalView();
 };
@@ -121,12 +125,19 @@ private:
 
 	TabBar *tab_bar = nullptr;
 	Button *new_tab_button = nullptr;
+	Button *settings_button = nullptr;
 	VBoxContainer *main_vbox = nullptr;
 	Vector<TerminalTab> tabs;
 	int active_tab = -1;
 
 	String terminal_command;
 	int scrollback_limit = 10000;
+
+	// Settings dialog (lazily created).
+	AcceptDialog *settings_dialog = nullptr;
+	LineEdit *terminal_cmd_edit = nullptr;
+	SpinBox *font_size_spinbox = nullptr;
+	SpinBox *scrollback_spinbox = nullptr;
 
 	void _add_terminal_tab();
 	void _close_terminal_tab(int p_index);
@@ -136,6 +147,14 @@ private:
 	void _show_tab(int p_index);
 	void _poll_terminals();
 	void _update_tab_titles();
+
+	void _on_settings_pressed();
+	void _on_settings_confirmed();
+	void _build_settings_dialog();
+	void _on_terminal_cmd_changed(const String &p_text);
+	void _on_font_size_changed(double p_value);
+	void _on_scrollback_changed(double p_value);
+	void _set_setting(const String &p_key, const Variant &p_value);
 
 protected:
 	void _notification(int p_what);

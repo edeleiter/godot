@@ -28,16 +28,19 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#ifndef CLAUDE_MCP_DOCK_H
-#define CLAUDE_MCP_DOCK_H
+#pragma once
 
 #include "../mcp/godot_mcp_server.h"
 #include "scene/gui/box_container.h"
 
+class AcceptDialog;
 class Button;
+class CheckBox;
 class ItemList;
 class Label;
+class LineEdit;
 class RichTextLabel;
+class SpinBox;
 
 class ClaudeMCPDock : public VBoxContainer {
 	GDCLASS(ClaudeMCPDock, VBoxContainer);
@@ -49,9 +52,18 @@ private:
 	Label *status_label = nullptr;
 	Label *clients_label = nullptr;
 	Button *toggle_button = nullptr;
+	Button *settings_button = nullptr;
 	RichTextLabel *config_text = nullptr;
 	ItemList *log_list = nullptr;
 	Button *clear_log_button = nullptr;
+
+	// Settings dialog (lazily created).
+	AcceptDialog *settings_dialog = nullptr;
+	SpinBox *port_spinbox = nullptr;
+	LineEdit *host_edit = nullptr;
+	CheckBox *autostart_check = nullptr;
+	Label *restart_hint_label = nullptr;
+	Button *restart_server_button = nullptr;
 
 	// State
 	int last_client_count = -1;
@@ -67,6 +79,15 @@ private:
 	int _get_current_port() const;
 	String _generate_config_json(const String &p_bridge_path, int p_port) const;
 
+	void _on_settings_pressed();
+	void _on_settings_confirmed();
+	void _build_settings_dialog();
+	void _on_port_changed(double p_value);
+	void _on_host_changed(const String &p_text);
+	void _on_autostart_toggled(bool p_enabled);
+	void _on_restart_server_pressed();
+	void _set_setting(const String &p_key, const Variant &p_value);
+
 protected:
 	static void _bind_methods();
 	void _notification(int p_what);
@@ -80,4 +101,3 @@ public:
 	~ClaudeMCPDock();
 };
 
-#endif // CLAUDE_MCP_DOCK_H

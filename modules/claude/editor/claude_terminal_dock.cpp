@@ -36,7 +36,11 @@
 #include "editor/settings/editor_command_palette.h"
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/editor_scale.h"
+#include "scene/gui/dialogs.h"
+#include "scene/gui/label.h"
+#include "scene/gui/line_edit.h"
 #include "scene/gui/separator.h"
+#include "scene/gui/spin_box.h"
 #include "scene/main/timer.h"
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -121,16 +125,20 @@ void TerminalView::update_scrollbar() {
 	if (!state.is_valid()) {
 		return;
 	}
-	int total_lines = state->get_scrollback_count() + state->get_rows();
+	int scrollback_count = state->get_scrollback_count();
 	int visible_rows = state->get_rows();
+	int total_lines = scrollback_count + visible_rows;
 
-	scrollbar->set_max(state->get_scrollback_count());
+	// Clamp scroll_offset to valid range (guards against resize edge cases).
+	scroll_offset = CLAMP(scroll_offset, 0, scrollback_count);
+
+	// Block signals to prevent feedback loop — programmatic changes to
+	// max/page/value can trigger value_changed via Range clamping.
+	scrollbar->set_block_signals(true);
+	scrollbar->set_max(total_lines);
 	scrollbar->set_page(visible_rows);
-
-	if (scroll_offset == 0) {
-		// Auto-follow when at bottom.
-		scrollbar->set_value(state->get_scrollback_count());
-	}
+	scrollbar->set_value(scrollback_count - scroll_offset);
+	scrollbar->set_block_signals(false);
 
 	scrollbar->set_visible(total_lines > visible_rows);
 }
@@ -150,9 +158,10 @@ bool TerminalView::_is_cell_selected(int p_col, int p_row_in_view) const {
 	}
 
 	// Convert to linear position for comparison.
-	int sel_start_linear = selection_start.y * (state.is_valid() ? state->get_cols() : 80) + selection_start.x;
-	int sel_end_linear = selection_end.y * (state.is_valid() ? state->get_cols() : 80) + selection_end.x;
-	int cell_linear = p_row_in_view * (state.is_valid() ? state->get_cols() : 80) + p_col;
+	int cols = state.is_valid() ? state->get_cols() : 80;
+	int sel_start_linear = selection_start.y * cols + selection_start.x;
+	int sel_end_linear = selection_end.y * cols + selection_end.x;
+	int cell_linear = p_row_in_view * cols + p_col;
 
 	int min_linear = MIN(sel_start_linear, sel_end_linear);
 	int max_linear = MAX(sel_start_linear, sel_end_linear);
@@ -199,6 +208,12 @@ String TerminalView::_get_selected_text() const {
 	}
 
 	return result;
+}
+
+void TerminalView::refresh_font() {
+	_update_font();
+	_recompute_grid_size();
+	queue_redraw();
 }
 
 void TerminalView::_draw_cell(const AnsiTerminalState::Cell &p_cell, int p_x, int p_y, bool p_is_cursor, bool p_is_selected) {
@@ -624,6 +639,12 @@ ClaudeTerminalDock::ClaudeTerminalDock() {
 	new_tab_button->connect(SceneStringName(pressed), callable_mp(this, &ClaudeTerminalDock::_new_tab_pressed));
 	tab_hbox->add_child(new_tab_button);
 
+	settings_button = memnew(Button);
+	settings_button->set_tooltip_text(TTR("Terminal Settings"));
+	settings_button->set_theme_type_variation(SceneStringName(FlatButton));
+	settings_button->connect(SceneStringName(pressed), callable_mp(this, &ClaudeTerminalDock::_on_settings_pressed));
+	tab_hbox->add_child(settings_button);
+
 	set_process_internal(true);
 }
 
@@ -640,6 +661,12 @@ void ClaudeTerminalDock::_notification(int p_what) {
 		case NOTIFICATION_ENTER_TREE: {
 			terminal_command = EDITOR_GET("network/claude_mcp/terminal_command");
 			scrollback_limit = EDITOR_GET("network/claude_mcp/terminal_scrollback_lines");
+		} break;
+
+		case NOTIFICATION_THEME_CHANGED: {
+			if (settings_button) {
+				settings_button->set_button_icon(get_editor_theme_icon(SNAME("Tools")));
+			}
 		} break;
 
 		case NOTIFICATION_INTERNAL_PROCESS: {
@@ -672,7 +699,7 @@ void ClaudeTerminalDock::_add_terminal_tab() {
 	// Start the terminal process.
 	String cmd = terminal_command;
 	if (cmd.is_empty()) {
-		cmd = "wsl.exe";
+		cmd = "wsl.exe -d Ubuntu";
 	}
 	Error err = tab.pty->start(cmd, tab.state->get_cols(), tab.state->get_rows());
 	if (err != OK) {
@@ -779,6 +806,124 @@ void ClaudeTerminalDock::_update_tab_titles() {
 	for (int i = 0; i < tabs.size(); i++) {
 		tab_bar->set_tab_title(i, vformat("Terminal %d", i + 1));
 	}
+}
+
+void ClaudeTerminalDock::_on_settings_pressed() {
+	if (!settings_dialog) {
+		_build_settings_dialog();
+	}
+
+	// Populate controls from current settings (block signals to avoid
+	// triggering saves during population).
+	terminal_cmd_edit->set_text(EDITOR_GET("network/claude_mcp/terminal_command"));
+	font_size_spinbox->set_block_signals(true);
+	font_size_spinbox->set_value((int)EDITOR_GET("network/claude_mcp/terminal_font_size"));
+	font_size_spinbox->set_block_signals(false);
+	scrollback_spinbox->set_block_signals(true);
+	scrollback_spinbox->set_value((int)EDITOR_GET("network/claude_mcp/terminal_scrollback_lines"));
+	scrollback_spinbox->set_block_signals(false);
+
+	settings_dialog->popup_centered(Size2(420, 0));
+}
+
+void ClaudeTerminalDock::_on_settings_confirmed() {
+	// Save terminal command from LineEdit (which only fires text_submitted on Enter, not on OK click).
+	_on_terminal_cmd_changed(terminal_cmd_edit->get_text());
+}
+
+void ClaudeTerminalDock::_build_settings_dialog() {
+	settings_dialog = memnew(AcceptDialog);
+	settings_dialog->set_title(TTR("Terminal Settings"));
+	settings_dialog->connect("confirmed", callable_mp(this, &ClaudeTerminalDock::_on_settings_confirmed));
+	add_child(settings_dialog);
+
+	VBoxContainer *vbox = memnew(VBoxContainer);
+	settings_dialog->add_child(vbox);
+
+	// Terminal command.
+	HBoxContainer *cmd_hbox = memnew(HBoxContainer);
+	vbox->add_child(cmd_hbox);
+
+	Label *cmd_label = memnew(Label);
+	cmd_label->set_text(TTR("Command:"));
+	cmd_label->set_custom_minimum_size(Size2(130, 0));
+	cmd_hbox->add_child(cmd_label);
+
+	terminal_cmd_edit = memnew(LineEdit);
+	terminal_cmd_edit->set_h_size_flags(SIZE_EXPAND_FILL);
+	terminal_cmd_edit->connect("text_submitted", callable_mp(this, &ClaudeTerminalDock::_on_terminal_cmd_changed));
+	cmd_hbox->add_child(terminal_cmd_edit);
+
+	// Font size.
+	HBoxContainer *font_hbox = memnew(HBoxContainer);
+	vbox->add_child(font_hbox);
+
+	Label *font_label = memnew(Label);
+	font_label->set_text(TTR("Font Size:"));
+	font_label->set_custom_minimum_size(Size2(130, 0));
+	font_hbox->add_child(font_label);
+
+	font_size_spinbox = memnew(SpinBox);
+	font_size_spinbox->set_min(0);
+	font_size_spinbox->set_max(72);
+	font_size_spinbox->set_step(1);
+	font_size_spinbox->set_suffix(" (0 = default)");
+	font_size_spinbox->set_h_size_flags(SIZE_EXPAND_FILL);
+	font_size_spinbox->connect(SceneStringName(value_changed), callable_mp(this, &ClaudeTerminalDock::_on_font_size_changed));
+	font_hbox->add_child(font_size_spinbox);
+
+	// Scrollback lines.
+	HBoxContainer *scroll_hbox = memnew(HBoxContainer);
+	vbox->add_child(scroll_hbox);
+
+	Label *scroll_label = memnew(Label);
+	scroll_label->set_text(TTR("Scrollback:"));
+	scroll_label->set_custom_minimum_size(Size2(130, 0));
+	scroll_hbox->add_child(scroll_label);
+
+	scrollback_spinbox = memnew(SpinBox);
+	scrollback_spinbox->set_min(100);
+	scrollback_spinbox->set_max(100000);
+	scrollback_spinbox->set_step(100);
+	scrollback_spinbox->set_h_size_flags(SIZE_EXPAND_FILL);
+	scrollback_spinbox->connect(SceneStringName(value_changed), callable_mp(this, &ClaudeTerminalDock::_on_scrollback_changed));
+	scroll_hbox->add_child(scrollback_spinbox);
+
+	// Hint.
+	vbox->add_child(memnew(HSeparator));
+
+	Label *hint_label = memnew(Label);
+	hint_label->set_text(TTR("Command and scrollback changes apply to new tabs only."));
+	hint_label->set_autowrap_mode(TextServer::AUTOWRAP_WORD);
+	hint_label->add_theme_color_override("font_color", Color(0.7, 0.7, 0.7));
+	vbox->add_child(hint_label);
+}
+
+void ClaudeTerminalDock::_on_terminal_cmd_changed(const String &p_text) {
+	_set_setting("network/claude_mcp/terminal_command", p_text);
+	terminal_command = p_text;
+}
+
+void ClaudeTerminalDock::_on_font_size_changed(double p_value) {
+	_set_setting("network/claude_mcp/terminal_font_size", (int)p_value);
+
+	// Live-update all open terminal views.
+	for (int i = 0; i < tabs.size(); i++) {
+		if (tabs[i].view) {
+			tabs[i].view->refresh_font();
+		}
+	}
+}
+
+void ClaudeTerminalDock::_on_scrollback_changed(double p_value) {
+	_set_setting("network/claude_mcp/terminal_scrollback_lines", (int)p_value);
+	scrollback_limit = (int)p_value;
+}
+
+void ClaudeTerminalDock::_set_setting(const String &p_key, const Variant &p_value) {
+	EditorSettings::get_singleton()->set(p_key, p_value);
+	EditorSettings::get_singleton()->notify_changes();
+	EditorSettings::get_singleton()->save();
 }
 
 #endif // WINDOWS_ENABLED

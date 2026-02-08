@@ -49,7 +49,7 @@ ClaudeEditorPlugin::ClaudeEditorPlugin() {
 	_EDITOR_DEF("network/claude_mcp/port", GodotMCPServer::DEFAULT_PORT);
 	_EDITOR_DEF("network/claude_mcp/host", String("127.0.0.1"));
 	_EDITOR_DEF("network/claude_mcp/autostart", false);
-	_EDITOR_DEF("network/claude_mcp/terminal_command", String("wsl.exe"));
+	_EDITOR_DEF("network/claude_mcp/terminal_command", String("wsl.exe -d Ubuntu"));
 	_EDITOR_DEF("network/claude_mcp/terminal_font_size", 0); // 0 = use editor theme default.
 	_EDITOR_DEF("network/claude_mcp/terminal_scrollback_lines", 10000);
 
@@ -108,7 +108,8 @@ void ClaudeEditorPlugin::_notification(int p_what) {
 void ClaudeEditorPlugin::_start_server() {
 	int port = EDITOR_GET("network/claude_mcp/port");
 	String host = EDITOR_GET("network/claude_mcp/host");
-	mcp_server->start(port, host);
+	Error err = mcp_server->start(port, host);
+	ERR_FAIL_COND_MSG(err != OK, vformat("Claude MCP: Failed to start server on %s:%d.", host, port));
 	if (dock) {
 		dock->update_status();
 	}
