@@ -35,6 +35,7 @@
 #include "scene/main/node.h"
 
 #ifdef TOOLS_ENABLED
+#include "editor/editor_data.h"
 #include "editor/editor_interface.h"
 #include "editor/editor_undo_redo_manager.h"
 #endif

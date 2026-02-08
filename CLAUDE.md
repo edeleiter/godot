@@ -2,15 +2,37 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## WSL2 Environment Setup
+
+The repo lives on an NTFS mount (`/mnt/f/godot`). NTFS under WSL2 is case-insensitive, which breaks Python packages like SCons. The Python venv must live on the native Linux filesystem.
+
+```bash
+# System dependencies (one-time setup)
+sudo apt-get install -y pkg-config mingw-w64
+
+# Switch MinGW to posix threads (required by Godot)
+sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+
+# Create venv on native Linux FS (one-time setup)
+uv venv ~/.venvs/godot
+
+# Install dependencies
+VIRTUAL_ENV=~/.venvs/godot uv pip install scons
+
+# Activate before building
+source ~/.venvs/godot/bin/activate
+```
+
 ## Build Commands
 
 Godot uses SCons (Python-based build system). Requires Python 3.8+ and SCons 4.0+.
 
 ```bash
 # Build editor (default target)
-scons platform=windows        # Windows
-scons platform=linuxbsd       # Linux/BSD
-scons platform=macos          # macOS
+scons platform=windows d3d12=no   # Windows (cross-compile from WSL2, no D3D12 SDK)
+scons platform=linuxbsd            # Linux/BSD
+scons platform=macos               # macOS
 
 # Build with specific target
 scons platform=<platform> target=editor           # Editor (default)
@@ -117,3 +139,32 @@ When adding/modifying exposed APIs, update class reference XML files:
 ```
 
 Then fill in descriptions in the generated XML.
+
+## Claude MCP Module
+
+The `modules/claude/` module provides an MCP server that exposes 17 Godot editor tools to Claude Code. It runs a TCP server inside the editor process, with a Python bridge (`bridge/claude_mcp_bridge.py`) translating between MCP's stdio protocol and TCP.
+
+### Key Implementation Files
+
+| File | Purpose |
+|------|---------|
+| `mcp/godot_mcp_server.cpp` | Server core, protocol handling, allowed resource types |
+| `mcp/godot_mcp_tools_schema.cpp` | All 17 tool definitions and parameter schemas |
+| `mcp/godot_mcp_tools_scene.cpp` | Scene, property, and selection tool implementations |
+| `mcp/godot_mcp_tools_script.cpp` | Script create/read/modify implementations |
+| `mcp/godot_mcp_tools_runtime.cpp` | Runtime scene tree, output, screenshot, camera tools |
+| `mcp/godot_mcp_validation.cpp` | Path/type validation and JSON-to-Godot type coercion |
+
+### Build
+
+```bash
+scons platform=windows module_claude_enabled=yes
+```
+
+### Documentation
+
+- [README](modules/claude/README.md) - Overview, quick start, tool list
+- [TOOL_REFERENCE](modules/claude/docs/TOOL_REFERENCE.md) - Full API reference for all 17 tools
+- [MCP_SERVER](modules/claude/docs/MCP_SERVER.md) - Protocol and architecture
+- [SECURITY](modules/claude/docs/SECURITY.md) - Security model and risk assessment
+- [IMPLEMENTATION_GUIDE](modules/claude/docs/IMPLEMENTATION_GUIDE.md) - Build and development guide

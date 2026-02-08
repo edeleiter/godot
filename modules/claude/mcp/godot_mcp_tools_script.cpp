@@ -33,6 +33,7 @@
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
+#include "core/object/script_language.h"
 #include "scene/main/node.h"
 
 #ifdef TOOLS_ENABLED

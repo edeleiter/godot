@@ -167,6 +167,8 @@ Implement these tools in `GodotMCPServer`:
 | `godot_get_runtime_scene_tree` | P2 | Get runtime scene tree |
 | `godot_get_runtime_output` | P2 | Get runtime log output |
 | `godot_capture_screenshot` | P2 | Capture game screenshot |
+| `godot_runtime_camera_control` | P2 | Control debug camera in running game |
+| `godot_get_runtime_camera_info` | P2 | Get camera state from running game |
 
 ## Phase 5: Editor Integration
 
@@ -256,27 +258,38 @@ Check:
 
 ```text
 modules/claude/
-├── config.py                     ✓
-├── SCsub                         ✓
-├── register_types.h              ✓
-├── register_types.cpp            ✓
+├── config.py                             ✓
+├── SCsub                                 ✓
+├── register_types.h                      ✓
+├── register_types.cpp                    ✓
 ├── bridge/
-│   └── claude_mcp_bridge.py      ✓
+│   └── claude_mcp_bridge.py              ✓
 ├── mcp/
-│   ├── godot_mcp_server.h        ✓
-│   └── godot_mcp_server.cpp      ✓
+│   ├── godot_mcp_server.h                ✓
+│   ├── godot_mcp_server.cpp              ✓
+│   ├── godot_mcp_tools_schema.cpp        ✓
+│   ├── godot_mcp_tools_scene.cpp         ✓
+│   ├── godot_mcp_tools_script.cpp        ✓
+│   ├── godot_mcp_tools_runtime.cpp       ✓
+│   └── godot_mcp_validation.cpp          ✓
 ├── util/
-│   ├── mcp_scene_serializer.h    ✓
-│   └── mcp_scene_serializer.cpp  ✓
+│   ├── mcp_scene_serializer.h            ✓
+│   └── mcp_scene_serializer.cpp          ✓
 ├── editor/
-│   ├── claude_mcp_dock.h         ✓
-│   ├── claude_mcp_dock.cpp       ✓
-│   ├── claude_editor_plugin.h    ✓
-│   └── claude_editor_plugin.cpp  ✓
+│   ├── claude_mcp_dock.h                 ✓
+│   ├── claude_mcp_dock.cpp               ✓
+│   ├── claude_editor_plugin.h            ✓
+│   └── claude_editor_plugin.cpp          ✓
+├── doc_classes/
+│   ├── GodotMCPServer.xml                ✓
+│   ├── MCPSceneSerializer.xml            ✓
+│   ├── ClaudeMCPDock.xml                 ✓
+│   └── ClaudeEditorPlugin.xml            ✓
 └── docs/
-    ├── MCP_SERVER.md             ✓
-    ├── SECURITY.md               ✓
-    └── IMPLEMENTATION_GUIDE.md   ✓
+    ├── TOOL_REFERENCE.md                 ✓
+    ├── MCP_SERVER.md                     ✓
+    ├── SECURITY.md                       ✓
+    └── IMPLEMENTATION_GUIDE.md           ✓
 ```
 
 ## Next Steps

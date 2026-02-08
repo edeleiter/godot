@@ -206,3 +206,5 @@ Before deployment, verify:
 | `godot_get_runtime_scene_tree` | Low | Read-only, requires active game |
 | `godot_get_runtime_output` | Low | Read-only, requires active game |
 | `godot_capture_screenshot` | Low | Read-only, requires active game |
+| `godot_runtime_camera_control` | Low | Camera override only, requires active game |
+| `godot_get_runtime_camera_info` | Low | Read-only, requires active game |

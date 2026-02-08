@@ -68,6 +68,10 @@ claude
 | `godot_get_runtime_scene_tree` | Get scene tree from running game |
 | `godot_get_runtime_output` | Get log/print output from running game |
 | `godot_capture_screenshot` | Capture screenshot from running game |
+| `godot_runtime_camera_control` | Control debug camera in running game |
+| `godot_get_runtime_camera_info` | Get camera state from running game |
+
+See [TOOL_REFERENCE.md](docs/TOOL_REFERENCE.md) for full parameter details, return values, and error messages.
 
 ## Architecture
 
@@ -112,23 +116,50 @@ The module includes a status dock (Claude MCP) in the editor that shows:
 - Configuration instructions with copy button
 - Recent tool call log
 
+## Type Coercion
+
+When setting properties, JSON values are automatically converted to Godot types:
+
+| JSON | Godot Type |
+|------|------------|
+| `{"x": 1, "y": 2}` | `Vector2` / `Vector2i` |
+| `{"x": 1, "y": 2, "z": 3}` | `Vector3` / `Vector3i` |
+| `{"x": 1, "y": 2, "z": 3, "w": 4}` | `Vector4` |
+| `{"r": 1, "g": 0.5, "b": 0, "a": 1}` | `Color` |
+| `{"x": 0, "y": 0, "width": 100, "height": 50}` | `Rect2` / `Rect2i` |
+| `"BoxMesh"` | Resource instance (from allowlist) |
+| `{"_type": "BoxMesh", "size": {...}}` | Resource instance with properties |
+
+Only resource types on the security allowlist can be instantiated. See [TOOL_REFERENCE.md](docs/TOOL_REFERENCE.md) for the full conversion table and allowed resource types.
+
 ## Directory Structure
 
 ```
 modules/claude/
-├── config.py              # Build configuration
-├── SCsub                  # SCons build rules
-├── register_types.cpp/h   # Type registration
+├── config.py                # Build configuration
+├── SCsub                    # SCons build rules
+├── register_types.cpp/h     # Type registration
 ├── mcp/
-│   └── godot_mcp_server.* # MCP protocol server (TCP)
+│   ├── godot_mcp_server.*           # MCP protocol server (TCP)
+│   ├── godot_mcp_tools_schema.cpp   # Tool definitions & parameter schemas
+│   ├── godot_mcp_tools_scene.cpp    # Scene, property, and selection tools
+│   ├── godot_mcp_tools_script.cpp   # Script create/read/modify tools
+│   ├── godot_mcp_tools_runtime.cpp  # Runtime, screenshot, and camera tools
+│   └── godot_mcp_validation.cpp     # Path/type validation & type coercion
 ├── util/
-│   └── mcp_scene_serializer.* # Scene to JSON
+│   └── mcp_scene_serializer.*   # Scene to JSON
 ├── editor/
-│   ├── claude_mcp_dock.*      # Status dock
-│   └── claude_editor_plugin.* # Plugin (lifecycle + polling)
+│   ├── claude_mcp_dock.*        # Status dock
+│   └── claude_editor_plugin.*   # Plugin (lifecycle + polling)
 ├── bridge/
-│   └── claude_mcp_bridge.py   # Stdio-to-TCP bridge
+│   └── claude_mcp_bridge.py     # Stdio-to-TCP bridge
+├── doc_classes/                  # XML class documentation
+│   ├── GodotMCPServer.xml
+│   ├── MCPSceneSerializer.xml
+│   ├── ClaudeMCPDock.xml
+│   └── ClaudeEditorPlugin.xml
 └── docs/
+    ├── TOOL_REFERENCE.md        # Full tool API reference
     ├── IMPLEMENTATION_GUIDE.md  # Build & development guide
     ├── MCP_SERVER.md            # Protocol details
     └── SECURITY.md              # Security model

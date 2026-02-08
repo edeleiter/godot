@@ -15,7 +15,11 @@
       "mcp__godot__godot_read_script",
       "mcp__godot__godot_stop_scene",
       "mcp__godot__godot_get_runtime_camera_info",
-      "mcp__godot__godot_runtime_camera_control"
+      "mcp__godot__godot_runtime_camera_control",
+      "mcp__godot__godot_get_selected_nodes",
+      "mcp__godot__godot_add_node",
+      "mcp__godot__godot_select_nodes",
+      "mcp__godot__godot_remove_node"
     ]
   }
 }

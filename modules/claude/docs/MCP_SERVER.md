@@ -83,6 +83,8 @@ Add to your MCP settings (shown in the editor dock):
 | `godot_get_runtime_scene_tree` | Get running game scene tree | Read-only |
 | `godot_get_runtime_output` | Get game output/log messages | Read-only |
 | `godot_capture_screenshot` | Capture running game screenshot | Read-only |
+| `godot_runtime_camera_control` | Control debug camera in running game | Low (camera override) |
+| `godot_get_runtime_camera_info` | Get camera state from running game | Read-only |
 
 ## Resources
 
