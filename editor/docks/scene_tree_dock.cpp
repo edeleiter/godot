@@ -2029,9 +2029,14 @@ bool SceneTreeDock::_update_node_path(Node *p_root_node, NodePath &r_node_path, 
 	// Try to find the target node in modified node paths.
 	HashMap<Node *, NodePath>::Iterator found_node_path = p_renames->find(target_node);
 	if (found_node_path) {
+		String old_subnames;
+		if (r_node_path.get_subname_count() > 0) {
+			old_subnames = ":" + r_node_path.get_concatenated_subnames();
+		}
+
 		HashMap<Node *, NodePath>::Iterator found_root_path = p_renames->find(p_root_node);
 		NodePath root_path_new = found_root_path ? found_root_path->value : p_root_node->get_path();
-		r_node_path = root_path_new.rel_path_to(found_node_path->value);
+		r_node_path = NodePath(String(root_path_new.rel_path_to(found_node_path->value)) + old_subnames);
 
 		return true;
 	}
@@ -2041,9 +2046,14 @@ bool SceneTreeDock::_update_node_path(Node *p_root_node, NodePath &r_node_path, 
 	if (found_root_path) {
 		NodePath root_path_new = found_root_path->value;
 		if (!root_path_new.is_empty()) {
+			String old_subnames;
+			if (r_node_path.get_subname_count() > 0) {
+				old_subnames = ":" + r_node_path.get_concatenated_subnames();
+			}
+
 			NodePath old_abs_path = NodePath(String(p_root_node->get_path()).path_join(String(r_node_path)));
 			old_abs_path.simplify();
-			r_node_path = root_path_new.rel_path_to(old_abs_path);
+			r_node_path = NodePath(String(root_path_new.rel_path_to(old_abs_path)) + old_subnames);
 		}
 
 		return true;
@@ -3835,21 +3845,21 @@ void SceneTreeDock::_tree_rmb(const Vector2 &p_menu_pos) {
 	bool section_ended = false;
 
 // Marks beginning of a new separated section. When used multiple times in a row, only first use has effect.
-#define BEGIN_SECTION()            \
-	{                              \
-		if (section_ended) {       \
+#define BEGIN_SECTION() \
+	{ \
+		if (section_ended) { \
 			section_ended = false; \
 			menu->add_separator(); \
-		}                          \
-		section_started = true;    \
+		} \
+		section_started = true; \
 	}
 // Marks end of a section.
-#define END_SECTION()                \
-	{                                \
-		if (section_started) {       \
-			section_ended = true;    \
+#define END_SECTION() \
+	{ \
+		if (section_started) { \
+			section_ended = true; \
 			section_started = false; \
-		}                            \
+		} \
 	}
 
 	Ref<Script> existing_script;
@@ -3931,25 +3941,37 @@ void SceneTreeDock::_tree_rmb(const Vector2 &p_menu_pos) {
 	}
 
 	if (profile_allow_editing) {
-		bool is_foreign = false;
+		bool can_rename = true;
+		bool can_replace = true;
+
 		for (Node *E : selection) {
 			if (E != edited_scene && (E->get_owner() != edited_scene || E->is_instance())) {
-				is_foreign = true;
-				break;
+				can_replace = false;
+				if (!E->is_instance()) {
+					can_rename = false;
+				}
 			}
 
 			if (edited_scene->get_scene_inherited_state().is_valid()) {
 				if (E == edited_scene || edited_scene->get_scene_inherited_state()->find_node_by_path(edited_scene->get_path_to(E)) >= 0) {
-					is_foreign = true;
-					break;
+					can_replace = false;
+					can_rename = false;
 				}
+			}
+
+			if (!can_rename && !can_replace) {
+				break;
 			}
 		}
 
-		if (!is_foreign) {
+		if (can_rename || can_replace) {
 			BEGIN_SECTION()
-			menu->add_icon_shortcut(get_editor_theme_icon(SNAME("Rename")), ED_GET_SHORTCUT("scene_tree/rename"), TOOL_RENAME);
-			menu->add_icon_shortcut(get_editor_theme_icon(SNAME("Reload")), ED_GET_SHORTCUT("scene_tree/change_node_type"), TOOL_REPLACE);
+			if (can_rename) {
+				menu->add_icon_shortcut(get_editor_theme_icon(SNAME("Rename")), ED_GET_SHORTCUT("scene_tree/rename"), TOOL_RENAME);
+			}
+			if (can_replace) {
+				menu->add_icon_shortcut(get_editor_theme_icon(SNAME("Reload")), ED_GET_SHORTCUT("scene_tree/change_node_type"), TOOL_REPLACE);
+			}
 			END_SECTION()
 		}
 
@@ -4179,7 +4201,10 @@ void SceneTreeDock::save_branch_to_file(const String &p_directory) {
 
 void SceneTreeDock::_focus_node() {
 	Node *node = scene_tree->get_selected();
-	ERR_FAIL_NULL(node);
+	// This method handles the item_icon_double_clicked signal and there is no guarantee anything is actually selected.
+	if (!node) {
+		return;
+	}
 
 	if (node->is_class("CanvasItem")) {
 		CanvasItemEditorPlugin *editor = Object::cast_to<CanvasItemEditorPlugin>(editor_data->get_editor_by_name("2D"));
@@ -4746,7 +4771,7 @@ void SceneTreeDock::_bind_methods() {
 
 	ADD_SIGNAL(MethodInfo("remote_tree_selected"));
 	ADD_SIGNAL(MethodInfo("add_node_used"));
-	ADD_SIGNAL(MethodInfo("node_created", PropertyInfo(Variant::OBJECT, "node", PROPERTY_HINT_RESOURCE_TYPE, "Node")));
+	ADD_SIGNAL(MethodInfo("node_created", PropertyInfo(Variant::OBJECT, "node", PROPERTY_HINT_RESOURCE_TYPE, Node::get_class_static())));
 }
 
 SceneTreeDock *SceneTreeDock::singleton = nullptr;

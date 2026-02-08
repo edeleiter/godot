@@ -288,7 +288,7 @@ static const char *APK_ASSETS_DIRECTORY = "src/main/assets";
 static const char *AAB_ASSETS_DIRECTORY = "assetPackInstallTime/src/main/assets";
 
 static const int DEFAULT_MIN_SDK_VERSION = 24; // Should match the value in 'platform/android/java/app/config.gradle#minSdk'
-static const int DEFAULT_TARGET_SDK_VERSION = 35; // Should match the value in 'platform/android/java/app/config.gradle#targetSdk'
+static const int DEFAULT_TARGET_SDK_VERSION = 36; // Should match the value in 'platform/android/java/app/config.gradle#targetSdk'
 
 #ifndef ANDROID_ENABLED
 void EditorExportPlatformAndroid::_check_for_changes_poll_thread(void *ud) {
@@ -460,17 +460,7 @@ void EditorExportPlatformAndroid::_check_for_changes_poll_thread(void *ud) {
 }
 
 void EditorExportPlatformAndroid::_update_preset_status() {
-	const int preset_count = EditorExport::get_singleton()->get_export_preset_count();
-	bool has_runnable = false;
-
-	for (int i = 0; i < preset_count; i++) {
-		const Ref<EditorExportPreset> &preset = EditorExport::get_singleton()->get_export_preset(i);
-		if (preset->get_platform() == this && preset->is_runnable()) {
-			has_runnable = true;
-			break;
-		}
-	}
-
+	bool has_runnable = EditorExport::get_singleton()->get_runnable_preset_for_platform(this).is_valid();
 	if (has_runnable) {
 		has_runnable_preset.set();
 	} else {
@@ -2373,14 +2363,14 @@ Error EditorExportPlatformAndroid::run(const Ref<EditorExportPreset> &p_preset, 
 
 	String tmp_export_path = EditorPaths::get_singleton()->get_temp_dir().path_join("tmpexport." + uitos(OS::get_singleton()->get_unix_time()) + ".apk");
 
-#define CLEANUP_AND_RETURN(m_err)                                        \
-	{                                                                    \
-		DirAccess::remove_file_or_error(tmp_export_path);                \
-		if (FileAccess::exists(tmp_export_path + ".idsig")) {            \
+#define CLEANUP_AND_RETURN(m_err) \
+	{ \
+		DirAccess::remove_file_or_error(tmp_export_path); \
+		if (FileAccess::exists(tmp_export_path + ".idsig")) { \
 			DirAccess::remove_file_or_error(tmp_export_path + ".idsig"); \
-		}                                                                \
-		return m_err;                                                    \
-	}                                                                    \
+		} \
+		return m_err; \
+	} \
 	((void)0)
 
 	// Export to temporary APK before sending to device.
@@ -4044,11 +4034,11 @@ Error EditorExportPlatformAndroid::export_project_helper(const Ref<EditorExportP
 
 	String tmp_unaligned_path = EditorPaths::get_singleton()->get_temp_dir().path_join("tmpexport-unaligned." + uitos(OS::get_singleton()->get_unix_time()) + ".apk");
 
-#define CLEANUP_AND_RETURN(m_err)                            \
-	{                                                        \
+#define CLEANUP_AND_RETURN(m_err) \
+	{ \
 		DirAccess::remove_file_or_error(tmp_unaligned_path); \
-		return m_err;                                        \
-	}                                                        \
+		return m_err; \
+	} \
 	((void)0)
 
 	zipFile unaligned_apk = zipOpen2(tmp_unaligned_path.utf8().get_data(), APPEND_STATUS_CREATE, nullptr, &io2);

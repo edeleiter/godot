@@ -2339,11 +2339,11 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 
 		Array force_angle_list;
 
-#define FORCE_ANGLE(m_vendor, m_name)       \
-	{                                       \
-		Dictionary device;                  \
-		device["vendor"] = m_vendor;        \
-		device["name"] = m_name;            \
+#define FORCE_ANGLE(m_vendor, m_name) \
+	{ \
+		Dictionary device; \
+		device["vendor"] = m_vendor; \
+		device["name"] = m_name; \
 		force_angle_list.push_back(device); \
 	}
 
@@ -2827,6 +2827,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 	GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "xr/openxr/extensions/spatial_entity/april_tag_dict", PROPERTY_HINT_ENUM, "4x4H5,5x5H9,6x6H10,6x6H11"), "3");
 	GLOBAL_DEF_RST_BASIC("xr/openxr/extensions/eye_gaze_interaction", false);
 	GLOBAL_DEF_BASIC("xr/openxr/extensions/render_model", false);
+	GLOBAL_DEF_BASIC("xr/openxr/extensions/user_presence", false);
 
 	// OpenXR Binding modifier settings
 	GLOBAL_DEF_BASIC("xr/openxr/binding_modifiers/analog_threshold", false);
@@ -4368,7 +4369,7 @@ int Main::start() {
 			if (!game_path.is_empty() || !script.is_empty()) {
 				//autoload
 				OS::get_singleton()->benchmark_begin_measure("Startup", "Load Autoloads");
-				HashMap<StringName, ProjectSettings::AutoloadInfo> autoloads = ProjectSettings::get_singleton()->get_autoload_list();
+				HashMap<StringName, ProjectSettings::AutoloadInfo> autoloads(ProjectSettings::get_singleton()->get_autoload_list());
 
 				//first pass, add the constants so they exist before any script is loaded
 				for (const KeyValue<StringName, ProjectSettings::AutoloadInfo> &E : autoloads) {
