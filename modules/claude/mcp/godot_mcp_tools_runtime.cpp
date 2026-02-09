@@ -46,7 +46,7 @@
 #include "editor/editor_log.h"
 #include "editor/editor_node.h"
 #include "editor/run/game_view_plugin.h"
-#include "scene/debugger/scene_debugger.h"
+#include "scene/debugger/scene_debugger_object.h"
 #endif
 
 // Dictionary <-> Vector conversion helpers.
