@@ -58,7 +58,20 @@ const HashSet<String> GodotMCPServer::ALLOWED_RESOURCE_TYPES = {
 	// Particles
 	"ParticleProcessMaterial",
 	// Animation
-	"AnimationLibrary",
+	"Animation", "AnimationLibrary",
+	"AnimationNodeStateMachine", "AnimationNodeAnimation",
+	"AnimationNodeBlendTree", "AnimationNodeBlendSpace1D", "AnimationNodeBlendSpace2D",
+	// Navigation
+	"NavigationMesh",
+	// Noise
+	"FastNoiseLite",
+	// Shaders
+	"Shader", "ShaderInclude",
+	// Theme
+	"Theme",
+	// Input events
+	"InputEventKey", "InputEventMouseButton",
+	"InputEventJoypadButton", "InputEventJoypadMotion",
 	// Other safe resources
 	"Gradient", "Curve", "Curve2D", "Curve3D",
 	"Environment", "Sky", "PhysicsMaterial",
@@ -117,6 +130,24 @@ GodotMCPServer::GodotMCPServer() {
 
 	// Project tools.
 	tool_handlers["godot_project_settings"] = &GodotMCPServer::_tool_project_settings;
+	tool_handlers["godot_input_map"] = &GodotMCPServer::_tool_input_map;
+
+	// Introspection tools.
+	tool_handlers["godot_get_class_info"] = &GodotMCPServer::_tool_get_class_info;
+	tool_handlers["godot_get_node_info"] = &GodotMCPServer::_tool_get_node_info;
+
+	// Batch tools.
+	tool_handlers["godot_set_properties_batch"] = &GodotMCPServer::_tool_set_properties_batch;
+
+	// Resource tools.
+	tool_handlers["godot_project_files"] = &GodotMCPServer::_tool_project_files;
+
+	// 3D tools.
+	tool_handlers["godot_bake_navigation"] = &GodotMCPServer::_tool_bake_navigation;
+
+	// Animation tools.
+	tool_handlers["godot_create_animation"] = &GodotMCPServer::_tool_create_animation;
+	tool_handlers["godot_get_animation_info"] = &GodotMCPServer::_tool_get_animation_info;
 
 	// Runtime tools.
 	tool_handlers["godot_run_scene"] = &GodotMCPServer::_tool_run_scene;
@@ -278,10 +309,7 @@ void GodotMCPServer::_process_client(int p_id, Peer &p_peer) {
 		// Extract the line.
 		String line;
 		if (newline_pos > 0) {
-			Vector<uint8_t> line_buf;
-			line_buf.resize(newline_pos);
-			memcpy(line_buf.ptrw(), p_peer.read_buf.ptr(), newline_pos);
-			line = String::utf8((const char *)line_buf.ptr(), newline_pos).strip_edges();
+			line = String::utf8((const char *)p_peer.read_buf.ptr(), newline_pos).strip_edges();
 		}
 
 		// Remove processed bytes from buffer.
@@ -314,7 +342,7 @@ void GodotMCPServer::_process_client(int p_id, Peer &p_peer) {
 	}
 
 	// Send queued responses.
-	while (p_peer.response_queue.size() > 0) {
+	while (!p_peer.response_queue.is_empty()) {
 		const CharString &response = p_peer.response_queue[0];
 		int to_send = response.length() - p_peer.response_sent;
 		int sent = 0;

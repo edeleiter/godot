@@ -51,36 +51,8 @@ bool GodotMCPServer::_validate_node_path(const String &p_path, String &r_error) 
 	return true;
 }
 
-bool GodotMCPServer::_validate_script_path(const String &p_path, String &r_error) {
-	if (!p_path.begins_with("res://")) {
-		r_error = "Path must start with res://";
-		return false;
-	}
-
-	if (p_path.contains("..")) {
-		r_error = "Path cannot contain parent traversal (..)";
-		return false;
-	}
-
-	if (p_path.contains("/.") || p_path.begins_with("res://.")) {
-		r_error = "Cannot create hidden files";
-		return false;
-	}
-
-	if (!p_path.ends_with(".gd")) {
-		r_error = "Script must have .gd extension";
-		return false;
-	}
-
-	if (p_path.length() > 256) {
-		r_error = "Path too long";
-		return false;
-	}
-
-	return true;
-}
-
-bool GodotMCPServer::_validate_scene_path(const String &p_path, String &r_error) {
+// Common validation for all res:// paths.
+static bool _validate_res_path_common(const String &p_path, String &r_error) {
 	if (!p_path.begins_with("res://")) {
 		r_error = "Path must start with res://";
 		return false;
@@ -96,13 +68,49 @@ bool GodotMCPServer::_validate_scene_path(const String &p_path, String &r_error)
 		return false;
 	}
 
+	if (p_path.length() > 256) {
+		r_error = "Path too long";
+		return false;
+	}
+
+	return true;
+}
+
+bool GodotMCPServer::_validate_script_path(const String &p_path, String &r_error) {
+	if (!_validate_res_path_common(p_path, r_error)) {
+		return false;
+	}
+
+	if (!p_path.ends_with(".gd")) {
+		r_error = "Script must have .gd extension";
+		return false;
+	}
+
+	return true;
+}
+
+bool GodotMCPServer::_validate_scene_path(const String &p_path, String &r_error) {
+	if (!_validate_res_path_common(p_path, r_error)) {
+		return false;
+	}
+
 	if (!p_path.ends_with(".tscn") && !p_path.ends_with(".scn")) {
 		r_error = "Scene must have .tscn or .scn extension";
 		return false;
 	}
 
-	if (p_path.length() > 256) {
-		r_error = "Path too long";
+	return true;
+}
+
+bool GodotMCPServer::_validate_resource_path(const String &p_path, String &r_error) {
+	if (!_validate_res_path_common(p_path, r_error)) {
+		return false;
+	}
+
+	// Block dangerous binary extensions.
+	String ext = p_path.get_extension().to_lower();
+	if (ext == "exe" || ext == "dll" || ext == "so" || ext == "dylib" || ext == "bin") {
+		r_error = "Blocked file extension: " + ext;
 		return false;
 	}
 
@@ -195,21 +203,21 @@ Node *GodotMCPServer::_resolve_node_path(const String &p_path) {
 	return nullptr;
 }
 
-// Resource instantiation helper.
 Ref<Resource> GodotMCPServer::_instantiate_resource(const String &p_type) {
 	String error;
 	if (!_validate_resource_type(p_type, error)) {
 		return Ref<Resource>();
 	}
+
 	Object *obj = ClassDB::instantiate(p_type);
-	if (!obj) {
-		return Ref<Resource>();
-	}
-	Resource *res = Object::cast_to<Resource>(obj);
+	Resource *res = obj ? Object::cast_to<Resource>(obj) : nullptr;
 	if (!res) {
-		memdelete(obj);
+		if (obj) {
+			memdelete(obj);
+		}
 		return Ref<Resource>();
 	}
+
 	return Ref<Resource>(res);
 }
 

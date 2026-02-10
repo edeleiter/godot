@@ -29,7 +29,7 @@ For `godot_capture_screenshot`, an additional `image` content block is prepended
 
 - **Node paths** must start with `/root/` (e.g., `/root/Main/Player`).
 - **Script paths** must start with `res://`, end with `.gd`, and cannot contain `..` or hidden segments (`/.`). Max 256 characters.
-- **Resource types** must be in the allowed resource types list (see below).
+- **Resource types** must be in the allowed resource types list (see [resource-types.md](resource-types.md)).
 
 ### Runtime Tool Prerequisites
 
@@ -70,64 +70,6 @@ Resource types must be in the allowed list. The `_type` key is required for dict
 ### Passthrough
 
 If no coercion rule matches, the value is passed through unchanged.
-
----
-
-## Allowed Resource Types
-
-Only these types can be instantiated via type coercion. Organized by category:
-
-### Primitive Meshes
-
-`BoxMesh`, `SphereMesh`, `CylinderMesh`, `CapsuleMesh`, `PlaneMesh`, `PrismMesh`, `TorusMesh`, `PointMesh`, `QuadMesh`, `TextMesh`
-
-### Materials
-
-`StandardMaterial3D`, `ORMMaterial3D`, `ShaderMaterial`
-
-### Shapes (3D)
-
-`BoxShape3D`, `SphereShape3D`, `CapsuleShape3D`, `CylinderShape3D`, `ConvexPolygonShape3D`, `ConcavePolygonShape3D`, `WorldBoundaryShape3D`, `HeightMapShape3D`, `SeparationRayShape3D`
-
-### Shapes (2D)
-
-`RectangleShape2D`, `CircleShape2D`, `CapsuleShape2D`, `ConvexPolygonShape2D`, `ConcavePolygonShape2D`, `SegmentShape2D`, `SeparationRayShape2D`, `WorldBoundaryShape2D`
-
-### Animation
-
-`Animation`, `AnimationLibrary`, `AnimationNodeStateMachine`, `AnimationNodeAnimation`, `AnimationNodeBlendTree`, `AnimationNodeBlendSpace1D`, `AnimationNodeBlendSpace2D`
-
-### Navigation
-
-`NavigationMesh`
-
-### Noise
-
-`FastNoiseLite`
-
-### Shaders
-
-`Shader`, `ShaderInclude`
-
-### Theme
-
-`Theme`
-
-### Input Events
-
-`InputEventKey`, `InputEventMouseButton`, `InputEventJoypadButton`, `InputEventJoypadMotion`
-
-### Styles and UI
-
-`StyleBoxFlat`, `StyleBoxLine`, `StyleBoxEmpty`, `LabelSettings`, `FontVariation`
-
-### Environment and Sky
-
-`Environment`, `Sky`, `ProceduralSkyMaterial`, `PanoramaSkyMaterial`, `PhysicalSkyMaterial`
-
-### Other
-
-`Gradient`, `Curve`, `Curve2D`, `Curve3D`, `PhysicsMaterial`
 
 ---
 
@@ -352,7 +294,7 @@ Instance a PackedScene as a child of a node in the current scene. This is Godot'
 
 ### godot_connect_signal
 
-Connect a signal from one node to a method on another node. The primary Godot event/messaging pattern.
+Connect a signal from one node to a method on another node.
 
 **Parameters:**
 
@@ -376,8 +318,8 @@ Connect a signal from one node to a method on another node. The primary Godot ev
 - Node path validation errors (for both source and target)
 - `"Source node not found: <path>"`
 - `"Target node not found: <path>"`
-- `"Signal '<name>' not found on <path>"` — signal doesn't exist on the source node
-- `"Signal '<name>' is already connected to <path>::<method>"` — duplicate connection
+- `"Signal '<name>' not found on <path>"`
+- `"Signal '<name>' is already connected to <path>::<method>"`
 
 **Notes:** Supports undo/redo. Signal connections are persisted in `.tscn` files when the scene is saved. The target method does not need to exist yet (it can be defined in a script attached later), but the signal must exist on the source node.
 
@@ -400,7 +342,7 @@ Disconnect a signal connection between two nodes.
 - Node path validation errors
 - `"Source node not found: <path>"`
 - `"Target node not found: <path>"`
-- `"No connection from <source>::<signal> to <target>::<method>"` — connection doesn't exist
+- `"No connection from <source>::<signal> to <target>::<method>"`
 
 **Notes:** Supports undo/redo.
 
@@ -410,7 +352,7 @@ Disconnect a signal connection between two nodes.
 
 ### godot_project_settings
 
-Get, set, or list project settings (window size, physics, input map, rendering, etc.).
+Get, set, or list project settings.
 
 **Parameters:**
 
@@ -423,29 +365,11 @@ Get, set, or list project settings (window size, physics, input map, rendering, 
 
 **Returns (vary by action):**
 
-**get:**
+**get:** `setting`, `value`, `type`
 
-| Field | Type | Description |
-|---|---|---|
-| `setting` | string | Setting path |
-| `value` | any | Current value |
-| `type` | string | Godot type name |
+**set:** `setting`, `value`, optional `note` (warning if restart may be required)
 
-**set:**
-
-| Field | Type | Description |
-|---|---|---|
-| `setting` | string | Setting path |
-| `value` | any | New value |
-| `note` | string | (Optional) Warning if restart may be required |
-
-**list:**
-
-| Field | Type | Description |
-|---|---|---|
-| `settings` | array | Array of `{name, type, value}` objects |
-| `count` | int | Number of settings returned |
-| `prefix` | string | The filter used |
+**list:** `settings` (array of `{name, type, value}`), `count`, `prefix`
 
 **Errors:**
 - `"Missing required 'action' parameter. Use: 'get', 'set', or 'list'"`
@@ -453,7 +377,7 @@ Get, set, or list project settings (window size, physics, input map, rendering, 
 - `"'set' action requires 'value' parameter"`
 - `"Unknown action: <action>"`
 
-**Notes:** Values are coerced to match existing setting types. Changes to rendering/window settings may require an editor restart. Settings are saved to `project.godot` immediately. Common settings categories when listing without a prefix: `application/config/`, `display/window/size/`, `physics/2d/`, `physics/3d/`, `rendering/renderer/`, `rendering/environment/`, `input/`.
+**Notes:** Values are coerced to match existing setting types. Changes to rendering/window settings may require an editor restart.
 
 ---
 
@@ -471,12 +395,7 @@ Create a new GDScript file.
 | `content` | string | Yes | Script content |
 | `attach_to` | string | No | Node path to attach script to |
 
-**Returns:**
-
-| Field | Type | Description |
-|---|---|---|
-| `path` | string | The script path |
-| `attached_to` | string | Node path (only if `attach_to` was specified) |
+**Returns:** `path`, optional `attached_to`
 
 **Errors:**
 - `"Path must start with res://"`
@@ -500,19 +419,11 @@ Read the content of a script file.
 |---|---|---|---|
 | `path` | string | Yes | Resource path to the script |
 
-**Returns:**
-
-| Field | Type | Description |
-|---|---|---|
-| `path` | string | The script path |
-| `content` | string | Full text content of the script |
+**Returns:** `path`, `content`
 
 **Errors:**
 - `"Script not found: <path>"`
 - `"Cannot read: <path>"`
-- Same path validation errors as `godot_create_script`
-
-**Notes:** Read-only.
 
 ---
 
@@ -529,7 +440,6 @@ Modify an existing script file.
 
 **Errors:**
 - `"Script not found: <path>"`
-- Same path validation errors as `godot_create_script`
 
 **Notes:** Supports undo/redo. Old content is preserved for undo. Triggers filesystem rescan.
 
@@ -543,14 +453,7 @@ Get the currently selected nodes in the editor.
 
 **Parameters:** None
 
-**Returns:**
-
-| Field | Type | Description |
-|---|---|---|
-| `selected` | array | Array of node path strings |
-| `count` | int | Number of selected nodes |
-
-**Notes:** Read-only. Returns empty array if nothing is selected.
+**Returns:** `selected` (array of node path strings), `count`
 
 ---
 
@@ -564,11 +467,7 @@ Select nodes in the editor.
 |---|---|---|---|
 | `node_paths` | array | Yes | Array of node paths to select |
 
-**Returns:**
-
-| Field | Type | Description |
-|---|---|---|
-| `count` | int | Number of actually selected nodes |
+**Returns:** `count`
 
 **Notes:** Clears current selection first. Silently skips unresolvable paths.
 
@@ -585,8 +484,6 @@ Run the current scene or a specific scene.
 | Name | Type | Required | Description |
 |---|---|---|---|
 | `scene_path` | string | No | Scene path; uses current scene if empty |
-
-**Notes:** If `scene_path` is empty, runs the current scene. Otherwise runs the specified scene.
 
 ---
 
@@ -606,12 +503,7 @@ Get the scene tree from the currently running game instance.
 
 **Parameters:** None
 
-**Returns:**
-
-| Field | Type | Description |
-|---|---|---|
-| `running` | bool | Whether a game is running |
-| `scene` | object/null | Hierarchical scene tree, or `null` if no game running |
+**Returns:** `running` (bool), `scene` (object/null)
 
 Each node in the tree contains: `name`, `type`, `id` (int64), `scene_file_path`, `children` (array).
 
@@ -632,15 +524,9 @@ Get output/log messages from the running game.
 | `limit` | integer | No | Maximum messages to return (default 100) |
 | `since_timestamp` | number | No | Only return messages after this Unix timestamp |
 
-**Returns:**
+**Returns:** `running` (bool), `message_count` (int), `messages` (array with `type`, `text`, `timestamp`)
 
-| Field | Type | Description |
-|---|---|---|
-| `running` | bool | Whether a game is running |
-| `message_count` | int | Number of returned messages |
-| `messages` | array | Messages, each with `type` (`log`/`warning`/`error`), `text`, and `timestamp` |
-
-**Notes:** Messages are returned newest-first. Buffer holds up to 1000 messages; oldest are trimmed. Buffer clears when a new game session starts.
+**Notes:** Messages are returned newest-first. Buffer holds up to 1000 messages. Buffer clears when a new game session starts.
 
 ---
 
@@ -650,26 +536,17 @@ Capture a screenshot from the running game viewport.
 
 **Parameters:** None
 
-**Returns:**
-
-| Field | Type | Description |
-|---|---|---|
-| `width` | int | Pixel width |
-| `height` | int | Pixel height |
-
-The response includes an MCP `image` content block with the PNG data (base64-encoded).
+**Returns:** `width`, `height`. Response includes an MCP `image` content block with PNG data (base64-encoded).
 
 **Errors:**
 - `"No game running"`
-- `"GameViewDebugger not available"`
-- `"Failed to register screenshot callback. Is the game running?"`
 - `"Screenshot capture timed out"` (5s timeout)
 
 ---
 
 ### godot_runtime_camera_control
 
-Control the debug camera in a running game. Enable camera override, move, look at targets, or reset.
+Control the debug camera in a running game.
 
 **Parameters:**
 
@@ -684,26 +561,10 @@ Control the debug camera in a running game. Enable camera override, move, look a
 | `fov` | number | No | Field of view in degrees (3D, default 75) |
 | `zoom` | number | No | Zoom level (2D, default 1.0) |
 
-**Returns (vary by action):**
-- **enable/disable/reset:** Confirmation message
-- **move (3D):** `position`, `rotation_degrees`, `fov`
-- **move (2D):** `offset`, `zoom`
-- **look_at (3D):** `position`, `target`, `rotation_degrees`, `fov`
-
-**Errors:**
-- `"No game running. Start a scene first with godot_run_scene."`
-- `"Missing required 'action' parameter. Use: enable, disable, move, look_at, or reset"`
-- `"Invalid camera_type: <type>. Use '3d' or '2d'"`
-- `"Debugger session not active"`
-- `"'look_at' action requires 'target' parameter"`
-- `"Unknown 3D camera action: <action>"`
-- `"Unknown 2D camera action: <action>. 2D cameras support: enable, disable, reset, move"`
-
 **Notes:**
-- 3D rotation uses YXZ Euler order; degrees are converted to radians internally.
-- 3D `look_at` uses up vector `(0, 1, 0)` and returns the computed rotation.
-- 2D does **not** support `look_at`.
 - Camera override must be enabled before `move` or `look_at` will have visible effect.
+- 3D rotation uses YXZ Euler order.
+- 2D does **not** support `look_at`.
 
 ---
 
@@ -717,17 +578,7 @@ Get current camera state from the running game.
 |---|---|---|---|
 | `camera_type` | string | No | `3d` (default) or `2d` |
 
-**Returns:**
-
-| Field | Type | Description |
-|---|---|---|
-| `camera_type` | string | `3d` or `2d` |
-| `override_enabled` | bool | Whether camera override is active |
-| `note` | string | Human-readable description of the override state |
-
-**Errors:**
-- `"No game running. Start a scene first with godot_run_scene."`
-- `"Debugger session not active"`
+**Returns:** `camera_type`, `override_enabled` (bool), `note`
 
 **Notes:** Informational only. Reports override state but does not return the camera transform.
 
@@ -737,41 +588,22 @@ Get current camera state from the running game.
 
 ### godot_input_map
 
-Manage input actions and bindings. Add/remove actions, bind keys/buttons/axes for player controls. All mutations support undo/redo.
+Manage input actions and bindings. Add/remove actions, bind keys/buttons/axes for player controls.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |---|---|---|---|
 | `action` | string | Yes | `list`, `add_action`, `remove_action`, `add_binding`, or `remove_binding` |
-| `action_name` | string | No | Input action name (e.g., `move_forward`). Required for all actions except `list`. |
-| `deadzone` | number | No | Deadzone for the action (default: 0.5). Used with `add_action`. |
-| `binding` | object | No | Binding definition. Required for `add_binding`/`remove_binding`. |
+| `action_name` | string | For mutations | Input action name (e.g., `move_forward`) |
+| `deadzone` | number | No | Deadzone (default: 0.5). Used with `add_action`. |
+| `binding` | object | For bindings | `{type, key/button/axis}`. Types: `key`, `mouse_button`, `joypad_button`, `joypad_motion` |
 
-**Binding object fields:**
+**Returns (list):** `actions` (array of `{name, deadzone, bindings}`), `count`
 
-| Field | Type | Description |
-|---|---|---|
-| `type` | string | `key`, `mouse_button`, `joypad_button`, or `joypad_motion` |
-| `key` | string | Key name for `key` type (e.g., `W`, `Space`, `Escape`) |
-| `button` | int | Button index for `mouse_button` (1=left, 2=right, 3=middle) or `joypad_button` (0=A, 1=B, 2=X, 3=Y) |
-| `axis` | int | Axis index for `joypad_motion` (0=LeftX, 1=LeftY, 2=RightX, 3=RightY) |
-| `axis_value` | float | Axis direction for `joypad_motion` (-1.0 or 1.0) |
+**Returns (mutations):** `action_name`, `binding_type` (if applicable)
 
-**Returns (list):**
-
-| Field | Type | Description |
-|---|---|---|
-| `actions` | array | Array of action objects with `name`, `deadzone`, and `bindings` |
-| `count` | int | Number of actions listed |
-
-**Errors:**
-- `"Action already exists: <name>"` — duplicate `add_action`
-- `"Action not found: <name>"` — unknown action name
-- `"Unknown key: <name>"` — invalid key name for binding
-- `"No matching binding found"` — `remove_binding` couldn't find a match
-
-**Notes:** The `list` action skips built-in `ui_*` actions. Changes are persisted to `project.godot` immediately. All mutations (add/remove action, add/remove binding) are undoable via Ctrl+Z.
+**Notes:** Skips built-in `ui_*` actions in list. Changes persist to `project.godot`. All mutations support undo/redo.
 
 ---
 
@@ -785,32 +617,20 @@ Query ClassDB for a Godot class: properties, methods, signals, enums, and inheri
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `class_name` | string | Yes | Godot class name (e.g., `CharacterBody3D`, `GPUParticles3D`) |
+| `class_name` | string | Yes | Godot class name (e.g., `CharacterBody3D`) |
 | `include_properties` | bool | No | Include property list (default: true) |
 | `include_methods` | bool | No | Include method list (default: false) |
 | `include_signals` | bool | No | Include signal list (default: true) |
 | `include_enums` | bool | No | Include enum definitions (default: false) |
 | `inherited` | bool | No | Include inherited members (default: false) |
 
-**Returns:**
+**Returns:** `class_name`, `inheritance` (chain), `properties`, `methods`, `signals`, `enums` (depending on flags)
 
-| Field | Type | Description |
-|---|---|---|
-| `class_name` | string | The queried class name |
-| `inheritance` | array | Inheritance chain from class to Object |
-| `properties` | array | Property list (if requested): `{name, type, hint}` |
-| `methods` | array | Method list (if requested): `{name, return_type, arguments}` |
-| `signals` | array | Signal list (if requested): `{name, arguments}` |
-| `enums` | dict | Enum definitions (if requested): `{enum_name: {constant: value}}` |
-
-**Errors:**
-- `"Unknown class: <name>"` — class not registered in ClassDB
-
-**Notes:** Read-only introspection. Does not require a scene to be open. Useful for discovering available properties before using `godot_set_property`. Set `inherited=false` (default) to see only the class's own members.
+**Notes:** Does not require a scene to be open. Set `inherited=false` (default) to see only the class's own members.
 
 ### godot_get_node_info
 
-Full inspector for a single node: all properties with current values, script info, signals, and children summary. Returns everything in one call.
+Full inspector for a single node: all properties with current values, script info, children summary.
 
 **Parameters:**
 
@@ -821,25 +641,9 @@ Full inspector for a single node: all properties with current values, script inf
 | `include_methods` | bool | No | Include method list (default: false) |
 | `include_signals` | bool | No | Include signals and connections (default: false) |
 
-**Returns:**
+**Returns:** `node_path`, `class`, `name`, `script_path`, `children` (array), `child_count`, `properties` (with values)
 
-| Field | Type | Description |
-|---|---|---|
-| `node_path` | string | Resolved node path |
-| `class` | string | Node class name |
-| `name` | string | Node name |
-| `script_path` | string | Attached script path (if any) |
-| `children` | array | Child nodes: `{name, class}` |
-| `child_count` | int | Number of children |
-| `properties` | array | Properties with values: `{name, type, value, category}` |
-| `methods` | array | Methods (if requested) |
-| `signals` | array | Signals with connections (if requested) |
-
-**Errors:**
-- `"Node not found: <path>"` — invalid node path
-- Standard node path validation errors
-
-**Notes:** Unlike `godot_get_property` (which reads one property), this returns all editor-visible properties at once. Object-type properties are serialized as `{class, path}` or a string representation.
+**Notes:** Unlike `godot_get_property` (one property), this returns all editor-visible properties at once. Object-type properties are serialized as `{class, path}`.
 
 ---
 
@@ -853,29 +657,11 @@ Set multiple properties across nodes in one call with a single undo action. Ctrl
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `operations` | array | Yes | Array of operation objects |
+| `operations` | array | Yes | Array of `{node_path, property, value}` objects |
 
-**Operation object fields:**
+**Returns:** `results` (per-operation), `succeeded`, `failed`
 
-| Field | Type | Description |
-|---|---|---|
-| `node_path` | string | Path to target node |
-| `property` | string | Property name to set |
-| `value` | any | Value to set (supports type coercion) |
-
-**Returns:**
-
-| Field | Type | Description |
-|---|---|---|
-| `results` | array | Per-operation results: `{node_path, property, success, error}` |
-| `succeeded` | int | Number of successful operations |
-| `failed` | int | Number of failed operations |
-
-**Errors:**
-- `"No operations provided"` — empty operations array
-- Individual operation errors are reported in the `results` array, not as top-level errors
-
-**Notes:** All successful operations are grouped into a single undo action. If some operations fail (e.g., node not found), the successful ones still apply. Type coercion works the same as `godot_set_property`.
+**Notes:** All successful operations share a single undo action. Failed operations are reported individually in results but don't block successful ones. Type coercion works the same as `godot_set_property`.
 
 ---
 
@@ -883,7 +669,7 @@ Set multiple properties across nodes in one call with a single undo action. Ctrl
 
 ### godot_project_files
 
-List project files with resource type metadata, or trigger a filesystem rescan after external file changes.
+List project files with resource type metadata, or trigger a filesystem rescan.
 
 **Parameters:**
 
@@ -892,24 +678,11 @@ List project files with resource type metadata, or trigger a filesystem rescan a
 | `action` | string | Yes | `list` (browse files) or `scan` (trigger filesystem rescan) |
 | `path` | string | No | Directory path for `list` (default: `res://`) |
 | `recursive` | bool | No | List files recursively (default: false) |
-| `extensions` | array | No | Filter by file extensions, e.g., `["tscn", "gd", "tres"]` |
+| `extensions` | array | No | Filter by extensions, e.g., `["tscn", "gd"]` |
 
-**Returns (list):**
+**Returns (list):** `path`, `files` (array of `{path, type}`), `file_count`, `subdirectories`
 
-| Field | Type | Description |
-|---|---|---|
-| `path` | string | Directory path listed |
-| `files` | array | File objects: `{path, type}` |
-| `file_count` | int | Number of files returned |
-| `subdirectories` | array | Immediate subdirectory paths |
-
-**Returns (scan):** Success message confirming rescan was triggered.
-
-**Errors:**
-- `"Directory not found: <path>"` — path doesn't exist in project
-- Standard resource path validation errors
-
-**Notes:** The `list` action always includes immediate subdirectories for navigation, even when filtering by extension. Use `scan` after creating files externally (e.g., via Claude Code's file tools) to make them visible in the editor.
+**Notes:** Use `scan` after creating files externally to make them visible in the editor. Always includes immediate subdirectories.
 
 ---
 
@@ -917,7 +690,7 @@ List project files with resource type metadata, or trigger a filesystem rescan a
 
 ### godot_bake_navigation
 
-Trigger navigation mesh baking on a NavigationRegion3D. Required for AI pathfinding to work.
+Trigger navigation mesh baking on a NavigationRegion3D. Required for AI pathfinding.
 
 **Parameters:**
 
@@ -925,18 +698,9 @@ Trigger navigation mesh baking on a NavigationRegion3D. Required for AI pathfind
 |---|---|---|---|
 | `node_path` | string | Yes | Path to a NavigationRegion3D node |
 
-**Returns:**
+**Returns:** `node_path`
 
-| Field | Type | Description |
-|---|---|---|
-| `node_path` | string | Path to the baked node |
-
-**Errors:**
-- `"Node is not a NavigationRegion3D: <path>"` — wrong node type
-- `"NavigationRegion3D has no NavigationMesh resource"` — set a NavigationMesh first
-- `"Navigation mesh is already being baked"` — bake already in progress
-
-**Notes:** The node must have a NavigationMesh resource assigned before baking. Baking is synchronous (blocks until complete). The baked mesh is stored in-memory; save the scene to persist it.
+**Notes:** The node must have a NavigationMesh resource assigned. Baking is synchronous. Save the scene to persist the baked mesh.
 
 ---
 
@@ -944,91 +708,36 @@ Trigger navigation mesh baking on a NavigationRegion3D. Required for AI pathfind
 
 ### godot_create_animation
 
-Create an animation with tracks and keyframes on an AnimationPlayer or AnimationMixer. Supports position/rotation/scale/value/method/blend_shape tracks.
+Create an animation with tracks and keyframes on an AnimationPlayer/AnimationMixer.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `node_path` | string | Yes | Path to an AnimationPlayer or AnimationMixer node |
-| `animation_name` | string | Yes | Name for the new animation (e.g., `idle`, `walk`) |
-| `length` | number | Yes | Animation length in seconds |
-| `library_name` | string | No | Animation library name (default: `""` for the default library) |
+| `node_path` | string | Yes | Path to an AnimationPlayer/AnimationMixer node |
+| `animation_name` | string | Yes | Name for the animation (e.g., `idle`, `walk`) |
+| `length` | number | Yes | Length in seconds |
+| `library_name` | string | No | Library name (default: `""` for default library) |
 | `loop_mode` | string | No | `none` (default), `linear`, or `ping_pong` |
-| `tracks` | array | No | Array of track definitions |
+| `tracks` | array | No | Track definitions: `{type, path, keys}` |
 
-**Track definition fields:**
+**Track types:** `value`, `position_3d`, `rotation_3d`, `scale_3d`, `blend_shape`, `method`, `bezier`
 
-| Field | Type | Description |
-|---|---|---|
-| `type` | string | `value`, `position_3d`, `rotation_3d`, `scale_3d`, `blend_shape`, `method`, or `bezier` |
-| `path` | string | Node path relative to the AnimationMixer (e.g., `MeshInstance3D:position`) |
-| `keys` | array | Keyframe array: `{time, value}` (format depends on track type) |
+**Returns:** `animation_name`, `library`, `length`, `loop_mode`, `tracks_added`
 
-**Keyframe value formats by track type:**
-
-| Track Type | Value Format |
-|---|---|
-| `position_3d`, `scale_3d` | `{"x": 0, "y": 0, "z": 0}` |
-| `rotation_3d` | `{"x": 0, "y": 90, "z": 0}` (degrees) or `{"x": 0, "y": 0, "z": 0, "w": 1}` (quaternion) |
-| `blend_shape` | float (0.0 to 1.0) |
-| `method` | `{"method": "func_name", "args": [...]}` |
-| `value` | Any Variant (auto-coerced) |
-
-**Returns:**
-
-| Field | Type | Description |
-|---|---|---|
-| `animation_name` | string | Name of created animation |
-| `library` | string | Library name |
-| `length` | number | Animation length |
-| `loop_mode` | string | Loop mode |
-| `tracks_added` | int | Number of tracks successfully added |
-
-**Errors:**
-- `"Node is not an AnimationPlayer or AnimationMixer"` — wrong node type
-- `"Animation '<name>' already exists in library '<lib>'"` — duplicate name
-- `"Unknown track type: <type>"` — invalid track type string
-
-**Notes:** Supports undo/redo. If the specified library doesn't exist, it will be created automatically. Rotation values without a `w` component are interpreted as Euler degrees and converted to quaternions internally.
+**Notes:** Supports undo/redo. Creates library automatically if needed. Rotation values without `w` are interpreted as Euler degrees.
 
 ### godot_get_animation_info
 
-Inspect animations on an AnimationPlayer, AnimationMixer, or AnimationTree: library list, animation details, track summaries, and state machine info.
+Inspect animations: library list, animation details, track summaries, state machine info.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `node_path` | string | Yes | Path to an AnimationPlayer, AnimationMixer, or AnimationTree node |
+| `node_path` | string | Yes | Path to an AnimationPlayer/AnimationMixer/AnimationTree |
 | `animation_name` | string | No | Get detailed track/keyframe info for a specific animation |
 
-**Returns:**
+**Returns:** `node_path`, `class`, `libraries` (with animations). For AnimationTree: `tree_root_type`, `state_machine` info.
 
-| Field | Type | Description |
-|---|---|---|
-| `node_path` | string | Resolved node path |
-| `class` | string | Node class name |
-| `libraries` | array | Animation libraries with their animations |
-| `tree_root_type` | string | (AnimationTree only) Root node type |
-| `state_machine` | object | (AnimationTree with state machine) States and transitions |
-
-**Library entry fields:**
-
-| Field | Type | Description |
-|---|---|---|
-| `name` | string | Library name (`""` for default) |
-| `animations` | array | Animation summaries: `{name, length, loop_mode, track_count}` |
-| `animation_count` | int | Number of animations in the library |
-
-**Detailed animation fields (when `animation_name` is specified):**
-
-| Field | Type | Description |
-|---|---|---|
-| `tracks` | array | Track details: `{index, type, path, key_count, enabled, keys}` |
-| `keys` | array | Keyframe data: `{time, value}` (format varies by track type) |
-
-**Errors:**
-- `"Node is not an AnimationPlayer/AnimationMixer/AnimationTree"` — wrong node type
-
-**Notes:** Without `animation_name`, returns a summary of all libraries and animations. With `animation_name`, includes full track and keyframe data for that specific animation. For AnimationTree nodes, also reports the state machine structure (states, transitions, switch modes).
+**Notes:** Without `animation_name`, returns summary of all animations. With it, includes full track and keyframe data.

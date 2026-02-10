@@ -43,6 +43,38 @@
 #include "editor/editor_undo_redo_manager.h"
 #endif
 
+// Serialize a MethodInfo's argument list to an Array of {name, type} Dictionaries.
+static Array _serialize_arguments(const Vector<PropertyInfo> &p_args) {
+	Array out;
+	for (const PropertyInfo &arg : p_args) {
+		Dictionary arg_info;
+		arg_info["name"] = arg.name;
+		arg_info["type"] = Variant::get_type_name(arg.type);
+		out.push_back(arg_info);
+	}
+	return out;
+}
+
+// Determine the target type for a property on a node, handling the case where
+// the current value is null but the property expects an Object (e.g.,
+// MeshInstance3D.mesh before any mesh is assigned).
+static Variant::Type _resolve_property_type(Node *p_node, const String &p_property) {
+	Variant current = p_node->get(p_property);
+	Variant::Type type = current.get_type();
+	if (type != Variant::NIL) {
+		return type;
+	}
+
+	List<PropertyInfo> props;
+	p_node->get_property_list(&props);
+	for (const PropertyInfo &pi : props) {
+		if (pi.name == p_property && pi.type == Variant::OBJECT) {
+			return Variant::OBJECT;
+		}
+	}
+	return Variant::NIL;
+}
+
 Dictionary GodotMCPServer::_tool_get_scene_tree(const Dictionary &p_args) {
 	Node *scene_root = _get_scene_root();
 
@@ -181,30 +213,13 @@ Dictionary GodotMCPServer::_tool_set_property(const Dictionary &p_args) {
 		return _error_result("Property name is empty");
 	}
 
-	// Get property info to determine target type.
-	Variant current_value = node->get(property);
-	Variant::Type target_type = current_value.get_type();
-
-	// Special case: if current is null but property expects Object, check property info.
-	// This handles cases like MeshInstance3D.mesh where the mesh is initially null.
-	if (target_type == Variant::NIL) {
-		List<PropertyInfo> props;
-		node->get_property_list(&props);
-		for (const PropertyInfo &pi : props) {
-			if (pi.name == property && pi.type == Variant::OBJECT) {
-				target_type = Variant::OBJECT;
-				break;
-			}
-		}
-	}
-
 	// Coerce value to match the property's expected type.
+	Variant::Type target_type = _resolve_property_type(node, property);
 	if (target_type != Variant::NIL) {
 		value = _coerce_value(value, target_type);
 	}
 
-	// Get old value for undo.
-	Variant old_value = current_value;
+	Variant old_value = node->get(property);
 
 	// Set with undo/redo.
 	EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
@@ -434,6 +449,349 @@ Dictionary GodotMCPServer::_tool_instance_scene(const Dictionary &p_args) {
 	return _success_result("Instanced " + scene_path.get_file(),
 			Dictionary{ { "node_path", String(instance->get_path()) },
 					{ "scene_path", scene_path } });
+#else
+	return _error_result("Editor functionality not available");
+#endif
+}
+
+// Introspection tools.
+
+Dictionary GodotMCPServer::_tool_get_class_info(const Dictionary &p_args) {
+	String class_name = p_args.get("class_name", "");
+	bool include_properties = p_args.get("include_properties", true);
+	bool include_methods = p_args.get("include_methods", false);
+	bool include_signals = p_args.get("include_signals", true);
+	bool include_enums = p_args.get("include_enums", false);
+	bool inherited = p_args.get("inherited", false);
+
+	if (class_name.is_empty()) {
+		return _error_result("Missing required 'class_name' parameter");
+	}
+
+	if (!ClassDB::class_exists(class_name)) {
+		return _error_result("Unknown class: " + class_name);
+	}
+
+	Dictionary data;
+	data["class_name"] = class_name;
+
+	// Inheritance chain.
+	Array chain;
+	String current = class_name;
+	while (!current.is_empty()) {
+		chain.push_back(current);
+		current = ClassDB::get_parent_class(current);
+	}
+	data["inheritance"] = chain;
+
+	// Properties.
+	if (include_properties) {
+		Array props_out;
+		List<PropertyInfo> props;
+		ClassDB::get_property_list(class_name, &props, !inherited);
+		for (const PropertyInfo &pi : props) {
+			if (pi.name.is_empty() || pi.name.begins_with("_")) {
+				continue;
+			}
+			if ((pi.usage & PROPERTY_USAGE_CATEGORY) || (pi.usage & PROPERTY_USAGE_GROUP) || (pi.usage & PROPERTY_USAGE_SUBGROUP)) {
+				continue;
+			}
+			Dictionary prop;
+			prop["name"] = pi.name;
+			prop["type"] = Variant::get_type_name(pi.type);
+			if (!pi.hint_string.is_empty()) {
+				prop["hint"] = pi.hint_string;
+			}
+			props_out.push_back(prop);
+		}
+		data["properties"] = props_out;
+	}
+
+	// Methods.
+	if (include_methods) {
+		Array methods_out;
+		List<MethodInfo> methods;
+		ClassDB::get_method_list(class_name, &methods, !inherited);
+		for (const MethodInfo &mi : methods) {
+			if (mi.name.begins_with("_")) {
+				continue;
+			}
+			Dictionary method;
+			method["name"] = mi.name;
+			if (mi.return_val.type != Variant::NIL) {
+				method["return_type"] = Variant::get_type_name(mi.return_val.type);
+			}
+			Array args = _serialize_arguments(mi.arguments);
+			if (!args.is_empty()) {
+				method["arguments"] = args;
+			}
+			methods_out.push_back(method);
+		}
+		data["methods"] = methods_out;
+	}
+
+	// Signals.
+	if (include_signals) {
+		Array signals_out;
+		List<MethodInfo> signals;
+		ClassDB::get_signal_list(class_name, &signals, !inherited);
+		for (const MethodInfo &si : signals) {
+			Dictionary sig;
+			sig["name"] = si.name;
+			Array args = _serialize_arguments(si.arguments);
+			if (!args.is_empty()) {
+				sig["arguments"] = args;
+			}
+			signals_out.push_back(sig);
+		}
+		data["signals"] = signals_out;
+	}
+
+	// Enums.
+	if (include_enums) {
+		Dictionary enums_out;
+		List<StringName> enum_list;
+		ClassDB::get_enum_list(class_name, &enum_list, !inherited);
+		for (const StringName &enum_name : enum_list) {
+			Dictionary enum_values;
+			List<StringName> constants;
+			ClassDB::get_enum_constants(class_name, enum_name, &constants, !inherited);
+			for (const StringName &constant : constants) {
+				enum_values[constant] = ClassDB::get_integer_constant(class_name, constant);
+			}
+			enums_out[enum_name] = enum_values;
+		}
+		data["enums"] = enums_out;
+	}
+
+	return _success_result("Class info for " + class_name, data);
+}
+
+Dictionary GodotMCPServer::_tool_get_node_info(const Dictionary &p_args) {
+	String node_path = p_args.get("node_path", "");
+	bool include_properties = p_args.get("include_properties", true);
+	bool include_methods = p_args.get("include_methods", false);
+	bool include_signals = p_args.get("include_signals", false);
+
+	String error;
+	if (!_validate_node_path(node_path, error)) {
+		return _error_result(error);
+	}
+
+	Node *node = _resolve_node_path(node_path);
+	if (!node) {
+		return _error_result("Node not found: " + node_path);
+	}
+
+	Dictionary data;
+	data["node_path"] = String(node->get_path());
+	data["class"] = node->get_class();
+	data["name"] = node->get_name();
+
+	// Script info.
+	Ref<Script> script = node->get_script();
+	if (script.is_valid()) {
+		data["script_path"] = script->get_path();
+	}
+
+	// Children summary.
+	Array children;
+	for (int i = 0; i < node->get_child_count(); i++) {
+		Node *child = node->get_child(i);
+		Dictionary child_info;
+		child_info["name"] = child->get_name();
+		child_info["class"] = child->get_class();
+		children.push_back(child_info);
+	}
+	data["children"] = children;
+	data["child_count"] = node->get_child_count();
+
+	// Properties with current values.
+	if (include_properties) {
+		Array props_out;
+		List<PropertyInfo> props;
+		node->get_property_list(&props);
+
+		String current_category;
+		for (const PropertyInfo &pi : props) {
+			if (pi.usage & PROPERTY_USAGE_CATEGORY) {
+				current_category = pi.name;
+				continue;
+			}
+			if ((pi.usage & PROPERTY_USAGE_GROUP) || (pi.usage & PROPERTY_USAGE_SUBGROUP)) {
+				continue;
+			}
+			if (pi.name.is_empty() || pi.name.begins_with("_")) {
+				continue;
+			}
+			if (!(pi.usage & PROPERTY_USAGE_EDITOR)) {
+				continue;
+			}
+
+			Dictionary prop;
+			prop["name"] = pi.name;
+			prop["type"] = Variant::get_type_name(pi.type);
+
+			Variant value = node->get(pi.name);
+			// Serialize Object references as type name + path.
+			if (pi.type == Variant::OBJECT) {
+				Object *obj = value.get_validated_object();
+				if (obj) {
+					Resource *res = Object::cast_to<Resource>(obj);
+					if (res) {
+						Dictionary res_info;
+						res_info["class"] = res->get_class();
+						if (!res->get_path().is_empty()) {
+							res_info["path"] = res->get_path();
+						}
+						prop["value"] = res_info;
+					} else {
+						prop["value"] = obj->get_class();
+					}
+				} else {
+					prop["value"] = Variant();
+				}
+			} else {
+				prop["value"] = value;
+			}
+
+			if (!current_category.is_empty()) {
+				prop["category"] = current_category;
+			}
+			if (!pi.hint_string.is_empty()) {
+				prop["hint"] = pi.hint_string;
+			}
+
+			props_out.push_back(prop);
+		}
+		data["properties"] = props_out;
+	}
+
+	// Methods.
+	if (include_methods) {
+		Array methods_out;
+		List<MethodInfo> methods;
+		node->get_method_list(&methods);
+		for (const MethodInfo &mi : methods) {
+			if (mi.name.begins_with("_")) {
+				continue;
+			}
+			Dictionary method;
+			method["name"] = mi.name;
+			if (mi.return_val.type != Variant::NIL) {
+				method["return_type"] = Variant::get_type_name(mi.return_val.type);
+			}
+			methods_out.push_back(method);
+		}
+		data["methods"] = methods_out;
+	}
+
+	// Signals and connections.
+	if (include_signals) {
+		Array signals_out;
+		List<MethodInfo> signals;
+		node->get_signal_list(&signals);
+		for (const MethodInfo &si : signals) {
+			Dictionary sig;
+			sig["name"] = si.name;
+
+			// Get connections for this signal.
+			Array sig_connections;
+			List<Object::Connection> conns;
+			node->get_signal_connection_list(si.name, &conns);
+			for (const Object::Connection &conn : conns) {
+				Dictionary conn_info;
+				Object *target = conn.callable.get_object();
+				if (target) {
+					Node *target_node = Object::cast_to<Node>(target);
+					if (target_node) {
+						conn_info["target"] = String(target_node->get_path());
+					}
+				}
+				conn_info["method"] = conn.callable.get_method();
+				sig_connections.push_back(conn_info);
+			}
+			if (!sig_connections.is_empty()) {
+				sig["connections"] = sig_connections;
+			}
+
+			signals_out.push_back(sig);
+		}
+		data["signals"] = signals_out;
+	}
+
+	return _success_result("Node info for " + String(node->get_name()), data);
+}
+
+// Batch property tool.
+
+Dictionary GodotMCPServer::_tool_set_properties_batch(const Dictionary &p_args) {
+#ifdef TOOLS_ENABLED
+	Array operations = p_args.get("operations", Array());
+
+	if (operations.is_empty()) {
+		return _error_result("'operations' array is empty");
+	}
+
+	// Validate all operations first before committing any.
+	struct BatchOp {
+		Node *node;
+		String property;
+		Variant new_value;
+		Variant old_value;
+	};
+	Vector<BatchOp> ops;
+
+	for (int i = 0; i < operations.size(); i++) {
+		Dictionary op = operations[i];
+		String node_path = op.get("node_path", "");
+		String property = op.get("property", "");
+
+		if (node_path.is_empty() || property.is_empty()) {
+			return _error_result("Operation " + itos(i) + ": missing node_path or property");
+		}
+
+		String error;
+		if (!_validate_node_path(node_path, error)) {
+			return _error_result("Operation " + itos(i) + ": " + error);
+		}
+
+		Node *node = _resolve_node_path(node_path);
+		if (!node) {
+			return _error_result("Operation " + itos(i) + ": node not found: " + node_path);
+		}
+
+		if (!op.has("value")) {
+			return _error_result("Operation " + itos(i) + ": missing value");
+		}
+
+		Variant value = op["value"];
+		Variant::Type target_type = _resolve_property_type(node, property);
+		if (target_type != Variant::NIL) {
+			value = _coerce_value(value, target_type);
+		}
+
+		BatchOp batch_op;
+		batch_op.node = node;
+		batch_op.property = property;
+		batch_op.new_value = value;
+		batch_op.old_value = node->get(property);
+		ops.push_back(batch_op);
+	}
+
+	// All validated — commit as a single undo action.
+	EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
+	ur->create_action("MCP: Set " + itos(ops.size()) + " properties");
+
+	for (const BatchOp &op : ops) {
+		ur->add_do_method(op.node, "set", op.property, op.new_value);
+		ur->add_undo_method(op.node, "set", op.property, op.old_value);
+	}
+
+	ur->commit_action();
+
+	return _success_result("Set " + itos(ops.size()) + " properties in 1 undo action",
+			Dictionary{ { "count", ops.size() } });
 #else
 	return _error_result("Editor functionality not available");
 #endif

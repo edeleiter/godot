@@ -142,17 +142,22 @@ Then fill in descriptions in the generated XML.
 
 ## Claude MCP Module
 
-The `modules/claude/` module provides an MCP server that exposes 24 Godot editor tools to Claude Code. It runs a TCP server inside the editor process, with a Python bridge (`bridge/claude_mcp_bridge.py`) translating between MCP's stdio protocol and TCP.
+The `modules/claude/` module provides an MCP server that exposes 32 Godot editor tools to Claude Code. It runs a TCP server inside the editor process, with a Python bridge (`bridge/claude_mcp_bridge.py`) translating between MCP's stdio protocol and TCP.
 
 ### Key Implementation Files
 
 | File | Purpose |
 |------|---------|
 | `mcp/godot_mcp_server.cpp` | Server core, protocol handling, allowed resource types |
-| `mcp/godot_mcp_tools_schema.cpp` | All 24 tool definitions and parameter schemas |
+| `mcp/godot_mcp_tools_schema.cpp` | All 32 tool definitions and parameter schemas |
 | `mcp/godot_mcp_tools_scene.cpp` | Scene, property, and selection tool implementations |
 | `mcp/godot_mcp_tools_script.cpp` | Script create/read/modify implementations |
 | `mcp/godot_mcp_tools_runtime.cpp` | Runtime scene tree, output, screenshot, camera tools |
+| `mcp/godot_mcp_tools_project.cpp` | Project settings and input map tools |
+| `mcp/godot_mcp_tools_signals.cpp` | Signal connect/disconnect tools |
+| `mcp/godot_mcp_tools_3d.cpp` | Navigation mesh baking tool |
+| `mcp/godot_mcp_tools_animation.cpp` | Animation creation and inspection tools |
+| `mcp/godot_mcp_tools_resource.cpp` | Project file listing and filesystem scan |
 | `mcp/godot_mcp_validation.cpp` | Path/type validation and JSON-to-Godot type coercion |
 
 ### Build
@@ -161,10 +166,35 @@ The `modules/claude/` module provides an MCP server that exposes 24 Godot editor
 scons platform=windows module_claude_enabled=yes
 ```
 
+### Claude Code Plugin
+
+The `modules/claude/` directory is a Claude Code plugin marketplace. It provides the `godot-mcp` plugin with the Godot game development skill and auto-starts the MCP bridge.
+
+The marketplace is auto-discovered via `.claude/settings.json`. First-time setup:
+
+```bash
+# Install the plugin (one-time, from within Claude Code)
+/plugin install godot-mcp@godot-plugins
+
+# Or from the CLI
+claude plugin install godot-mcp@godot-plugins --scope user
+```
+
+After installation, the plugin loads automatically in all future sessions.
+
+**What the plugin provides:**
+- `skills/godot-game-dev/` — triggers on Godot game development tasks
+- `.mcp.json` — starts the Python bridge to connect to the editor's MCP server
+
+**Alternative (per-session, no install):**
+```bash
+claude --plugin-dir ./modules/claude
+```
+
 ### Documentation
 
 - [README](modules/claude/README.md) - Overview, quick start, tool list
-- [TOOL_REFERENCE](modules/claude/docs/TOOL_REFERENCE.md) - Full API reference for all 17 tools
+- [TOOL_REFERENCE](modules/claude/docs/TOOL_REFERENCE.md) - Full API reference for all 32 tools
 - [MCP_SERVER](modules/claude/docs/MCP_SERVER.md) - Protocol and architecture
 - [SECURITY](modules/claude/docs/SECURITY.md) - Security model and risk assessment
 - [IMPLEMENTATION_GUIDE](modules/claude/docs/IMPLEMENTATION_GUIDE.md) - Build and development guide

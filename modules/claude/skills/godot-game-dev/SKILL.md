@@ -1,10 +1,20 @@
+---
+name: godot-game-dev
+description: >
+  Use when the user asks to create a Godot scene, add a node, set up a player
+  character, wire signals, run the game, take a screenshot, build a level,
+  create a script, set project settings, inspect the scene tree, debug the
+  running game, save or instance a scene, or any Godot 4.x game development
+  task involving the Godot editor MCP tools.
+---
+
 # Godot Game Development Skill
 
-You are assisting with Godot 4.x game development through MCP tools that control the Godot editor. You have 24 tools available for scene manipulation, scripting, signals, project settings, runtime inspection, and scene persistence.
+You are assisting with Godot 4.x game development through MCP tools that control the Godot editor. You have 32 tools available for scene manipulation, scripting, signals, project settings, runtime inspection, and scene persistence.
 
 ## Tool Quick Reference
 
-### Scene Persistence (NEW — use these to save your work!)
+### Scene Persistence
 | Tool | Purpose |
 |------|---------|
 | `godot_save_scene` | Save current scene (or "save as" with path) |
@@ -51,6 +61,38 @@ You are assisting with Godot 4.x game development through MCP tools that control
 |------|---------|
 | `godot_get_selected_nodes` | Get editor selection |
 | `godot_select_nodes` | Set editor selection |
+
+### Input
+| Tool | Purpose |
+|------|---------|
+| `godot_input_map` | Add/remove input actions and key/button bindings |
+
+### Introspection
+| Tool | Purpose |
+|------|---------|
+| `godot_get_class_info` | Query ClassDB for class properties, methods, signals |
+| `godot_get_node_info` | Full inspector: all properties with current values |
+
+### Batch Operations
+| Tool | Purpose |
+|------|---------|
+| `godot_set_properties_batch` | Set multiple properties in one undo action |
+
+### Resource
+| Tool | Purpose |
+|------|---------|
+| `godot_project_files` | List project files or trigger filesystem rescan |
+
+### 3D
+| Tool | Purpose |
+|------|---------|
+| `godot_bake_navigation` | Bake navigation mesh for AI pathfinding |
+
+### Animation
+| Tool | Purpose |
+|------|---------|
+| `godot_create_animation` | Create animation with tracks and keyframes |
+| `godot_get_animation_info` | Inspect animations, tracks, state machines |
 
 ---
 
@@ -254,31 +296,7 @@ Tag nodes for batch operations. Use in scripts: `add_to_group("enemies")`, `get_
 
 ---
 
-## Allowed Resource Types
+## Additional Resources
 
-### Meshes
-BoxMesh, SphereMesh, CylinderMesh, CapsuleMesh, PlaneMesh, PrismMesh, TorusMesh, PointMesh, QuadMesh, TextMesh
-
-### Materials
-StandardMaterial3D, ORMMaterial3D, ShaderMaterial
-
-### Collision Shapes (3D)
-BoxShape3D, SphereShape3D, CapsuleShape3D, CylinderShape3D, ConvexPolygonShape3D, ConcavePolygonShape3D, WorldBoundaryShape3D, HeightMapShape3D, SeparationRayShape3D
-
-### Collision Shapes (2D)
-RectangleShape2D, CircleShape2D, CapsuleShape2D, ConvexPolygonShape2D, ConcavePolygonShape2D, SegmentShape2D, SeparationRayShape2D, WorldBoundaryShape2D
-
-### Particles
-ParticleProcessMaterial
-
-### Animation
-AnimationLibrary
-
-### Environment/Sky
-Environment, Sky, ProceduralSkyMaterial, PanoramaSkyMaterial, PhysicalSkyMaterial
-
-### UI Styles
-StyleBoxFlat, StyleBoxLine, StyleBoxEmpty, LabelSettings, FontVariation
-
-### Other
-Gradient, Curve, Curve2D, Curve3D, PhysicsMaterial
+- For full tool API docs (parameters, return values, error codes), see [references/tool-reference.md](references/tool-reference.md)
+- For allowed resource types, see [references/resource-types.md](references/resource-types.md)

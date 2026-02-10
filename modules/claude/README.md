@@ -4,7 +4,7 @@ This module integrates Claude AI with the Godot editor via the **Model Context P
 
 ## Features
 
-- **MCP Server**: Exposes 24 Godot editor tools as standardized MCP operations
+- **MCP Server**: Exposes 32 Godot editor tools as standardized MCP operations
 - **Scene Persistence**: Save, create, open, and instance scenes — full game development workflow
 - **Scene Manipulation**: Add, remove, and modify nodes with full undo/redo support
 - **Signal Wiring**: Connect and disconnect signals between nodes via the editor
@@ -28,10 +28,23 @@ Open your Godot project. Find the "Claude MCP" dock (right panel) and click
 **Start** to launch the MCP server on port 6009. Alternatively, enable
 autostart in Editor > Editor Settings > Network > Claude MCP.
 
-### 3. Configure Claude Code
+### 3. Install the Claude Code plugin (one-time)
 
-Add to your Claude Code MCP settings (`~/.claude/mcp.json` or VS Code settings):
+If working in the Godot source repo, the marketplace is auto-discovered:
 
+```bash
+# From within Claude Code
+/plugin install godot-mcp@godot-plugins
+
+# Or from the CLI
+claude plugin install godot-mcp@godot-plugins --scope user
+```
+
+This installs the MCP bridge, game development skill, and all 32 tools.
+
+**Alternative (manual MCP config):**
+
+Add to your MCP settings (`~/.claude.json` or VS Code settings):
 ```json
 {
   "mcpServers": {
@@ -94,6 +107,38 @@ claude
 |------|-------------|
 | `godot_get_selected_nodes` | Get currently selected nodes |
 | `godot_select_nodes` | Select nodes in the editor |
+
+### Input
+| Tool | Description |
+|------|-------------|
+| `godot_input_map` | Add/remove input actions and key/button/axis bindings |
+
+### Introspection
+| Tool | Description |
+|------|-------------|
+| `godot_get_class_info` | Query ClassDB for class properties, methods, signals, enums |
+| `godot_get_node_info` | Full node inspector: all properties with current values |
+
+### Batch Operations
+| Tool | Description |
+|------|-------------|
+| `godot_set_properties_batch` | Set multiple properties in one undo action |
+
+### Resource
+| Tool | Description |
+|------|-------------|
+| `godot_project_files` | List project files or trigger filesystem rescan |
+
+### 3D
+| Tool | Description |
+|------|-------------|
+| `godot_bake_navigation` | Bake navigation mesh on a NavigationRegion3D |
+
+### Animation
+| Tool | Description |
+|------|-------------|
+| `godot_create_animation` | Create animation with tracks and keyframes |
+| `godot_get_animation_info` | Inspect animations, tracks, and state machines |
 
 ### Runtime (requires running game)
 | Tool | Description |
@@ -171,17 +216,24 @@ Only resource types on the security allowlist can be instantiated. See [TOOL_REF
 
 ```
 modules/claude/
-├── config.py                # Build configuration
-├── SCsub                    # SCons build rules
-├── register_types.cpp/h     # Type registration
+├── .claude-plugin/
+│   ├── plugin.json              # Claude Code plugin manifest
+│   └── marketplace.json         # Local marketplace manifest
+├── .mcp.json                    # MCP bridge auto-start config
+├── config.py                    # Build configuration
+├── SCsub                        # SCons build rules
+├── register_types.cpp/h         # Type registration
 ├── mcp/
 │   ├── godot_mcp_server.*           # MCP protocol server (TCP)
 │   ├── godot_mcp_tools_schema.cpp   # Tool definitions & parameter schemas
 │   ├── godot_mcp_tools_scene.cpp    # Scene, property, selection, persistence, and instancing tools
 │   ├── godot_mcp_tools_script.cpp   # Script create/read/modify tools
 │   ├── godot_mcp_tools_signals.cpp  # Signal connect/disconnect tools
-│   ├── godot_mcp_tools_project.cpp  # Project settings get/set/list tool
+│   ├── godot_mcp_tools_project.cpp  # Project settings and input map tools
 │   ├── godot_mcp_tools_runtime.cpp  # Runtime, screenshot, and camera tools
+│   ├── godot_mcp_tools_3d.cpp       # Navigation mesh baking tool
+│   ├── godot_mcp_tools_animation.cpp # Animation creation and inspection tools
+│   ├── godot_mcp_tools_resource.cpp # Project file listing and filesystem scan
 │   └── godot_mcp_validation.cpp     # Path/type validation & type coercion
 ├── util/
 │   └── mcp_scene_serializer.*   # Scene to JSON
@@ -190,8 +242,8 @@ modules/claude/
 │   └── claude_editor_plugin.*   # Plugin (lifecycle + polling)
 ├── bridge/
 │   └── claude_mcp_bridge.py     # Stdio-to-TCP bridge
-├── skill/
-│   └── godot-game-dev.md       # Game development skill (recipes & patterns)
+├── skills/
+│   └── godot-game-dev/          # Game development skill (recipes & patterns)
 ├── doc_classes/                  # XML class documentation
 │   ├── GodotMCPServer.xml
 │   ├── MCPSceneSerializer.xml

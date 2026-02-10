@@ -117,6 +117,24 @@ private:
 
 	// Tool implementations — Project
 	Dictionary _tool_project_settings(const Dictionary &p_args);
+	Dictionary _tool_input_map(const Dictionary &p_args);
+
+	// Tool implementations — Introspection
+	Dictionary _tool_get_class_info(const Dictionary &p_args);
+	Dictionary _tool_get_node_info(const Dictionary &p_args);
+
+	// Tool implementations — Batch
+	Dictionary _tool_set_properties_batch(const Dictionary &p_args);
+
+	// Tool implementations — Resource
+	Dictionary _tool_project_files(const Dictionary &p_args);
+
+	// Tool implementations — 3D
+	Dictionary _tool_bake_navigation(const Dictionary &p_args);
+
+	// Tool implementations — Animation
+	Dictionary _tool_create_animation(const Dictionary &p_args);
+	Dictionary _tool_get_animation_info(const Dictionary &p_args);
 
 	// Tool implementations — Runtime
 	Dictionary _tool_run_scene(const Dictionary &p_args);
@@ -165,6 +183,7 @@ private:
 	bool _validate_scene_path(const String &p_path, String &r_error);
 	bool _validate_node_type(const String &p_type, String &r_error);
 	bool _validate_resource_type(const String &p_type, String &r_error);
+	bool _validate_resource_path(const String &p_path, String &r_error);
 	Node *_resolve_node_path(const String &p_path);
 	Node *_get_scene_root();
 

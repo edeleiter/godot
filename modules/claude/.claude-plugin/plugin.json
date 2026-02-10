@@ -1,0 +1,8 @@
+{
+  "name": "godot-mcp",
+  "version": "1.0.0",
+  "description": "Godot 4.x editor integration via MCP — 32 tools for scene manipulation, scripting, runtime inspection, and game development",
+  "author": { "name": "Godot Claude MCP Contributors" },
+  "license": "MIT",
+  "keywords": ["godot", "game-development", "mcp", "gdscript", "editor"]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "godot-plugins",
+  "owner": {
+    "name": "Godot Claude MCP Contributors"
+  },
+  "metadata": {
+    "description": "Claude Code plugins for Godot Engine development",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "godot-mcp",
+      "source": "./",
+      "description": "Godot 4.x editor integration via MCP — 32 tools for scene manipulation, scripting, runtime inspection, and game development",
+      "version": "1.0.0",
+      "category": "development",
+      "keywords": ["godot", "game-development", "mcp", "gdscript", "editor"]
+    }
+  ]
+}

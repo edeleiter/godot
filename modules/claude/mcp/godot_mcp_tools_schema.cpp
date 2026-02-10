@@ -276,6 +276,88 @@ Dictionary GodotMCPServer::_handle_tools_list(const Dictionary &p_params) {
 			"Get current camera state from the running game (position, rotation, FOV/zoom)",
 			_make_schema(camera_info_params)));
 
+	// Introspection tools.
+	Array class_info_params;
+	class_info_params.push_back(Dictionary{ { "name", "class_name" }, { "type", "string" }, { "description", "Godot class name (e.g., 'CharacterBody3D', 'GPUParticles3D')" }, { "required", true } });
+	class_info_params.push_back(Dictionary{ { "name", "include_properties" }, { "type", "boolean" }, { "description", "Include property list (default: true)" }, { "required", false } });
+	class_info_params.push_back(Dictionary{ { "name", "include_methods" }, { "type", "boolean" }, { "description", "Include method list (default: false)" }, { "required", false } });
+	class_info_params.push_back(Dictionary{ { "name", "include_signals" }, { "type", "boolean" }, { "description", "Include signal list (default: true)" }, { "required", false } });
+	class_info_params.push_back(Dictionary{ { "name", "include_enums" }, { "type", "boolean" }, { "description", "Include enum definitions (default: false)" }, { "required", false } });
+	class_info_params.push_back(Dictionary{ { "name", "inherited" }, { "type", "boolean" }, { "description", "Include inherited members (default: false)" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_get_class_info",
+			"Query ClassDB for a Godot class: properties, methods, signals, enums, and inheritance chain. Read-only introspection.",
+			_make_schema(class_info_params)));
+
+	Array node_info_params;
+	node_info_params.push_back(Dictionary{ { "name", "node_path" }, { "type", "string" }, { "description", "Path to the node (e.g., '/root/Main/Player')" }, { "required", true } });
+	node_info_params.push_back(Dictionary{ { "name", "include_properties" }, { "type", "boolean" }, { "description", "Include all properties with current values (default: true)" }, { "required", false } });
+	node_info_params.push_back(Dictionary{ { "name", "include_methods" }, { "type", "boolean" }, { "description", "Include method list (default: false)" }, { "required", false } });
+	node_info_params.push_back(Dictionary{ { "name", "include_signals" }, { "type", "boolean" }, { "description", "Include signals and connections (default: false)" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_get_node_info",
+			"Full inspector for a single node: all properties with current values, script, signals, children. Returns everything in 1 call.",
+			_make_schema(node_info_params)));
+
+	// Batch property tool.
+	Array batch_props_params;
+	batch_props_params.push_back(Dictionary{ { "name", "operations" }, { "type", "array" }, { "description", "Array of {node_path, property, value} objects to set in a single undo action" }, { "required", true } });
+	tools.push_back(_define_tool(
+			"godot_set_properties_batch",
+			"Set multiple properties across nodes in one call with a single undo action. Ctrl+Z reverts all changes together.",
+			_make_schema(batch_props_params)));
+
+	// Project files tool.
+	Array project_files_params;
+	project_files_params.push_back(Dictionary{ { "name", "action" }, { "type", "string" }, { "description", "Action: 'list' (browse files) or 'scan' (trigger editor filesystem rescan)" }, { "required", true } });
+	project_files_params.push_back(Dictionary{ { "name", "path" }, { "type", "string" }, { "description", "Directory path (default: 'res://')" }, { "required", false } });
+	project_files_params.push_back(Dictionary{ { "name", "recursive" }, { "type", "boolean" }, { "description", "List files recursively (default: false)" }, { "required", false } });
+	project_files_params.push_back(Dictionary{ { "name", "extensions" }, { "type", "array" }, { "description", "Filter by file extensions, e.g. ['tscn', 'gd', 'tres']" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_project_files",
+			"List project files with resource type metadata, or trigger a filesystem rescan after external file changes.",
+			_make_schema(project_files_params)));
+
+	// Input map tool.
+	Array input_map_params;
+	input_map_params.push_back(Dictionary{ { "name", "action" }, { "type", "string" }, { "description", "Action: 'list', 'add_action', 'remove_action', 'add_binding', or 'remove_binding'" }, { "required", true } });
+	input_map_params.push_back(Dictionary{ { "name", "action_name" }, { "type", "string" }, { "description", "Input action name (e.g., 'move_forward'). Required for all actions except 'list'." }, { "required", false } });
+	input_map_params.push_back(Dictionary{ { "name", "deadzone" }, { "type", "number" }, { "description", "Deadzone for the action (default: 0.5). Used with 'add_action'." }, { "required", false } });
+	input_map_params.push_back(Dictionary{ { "name", "binding" }, { "type", "object" }, { "description", "Binding definition: {type: 'key'|'mouse_button'|'joypad_button'|'joypad_motion', key/button/axis, ...}" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_input_map",
+			"Manage input actions and bindings. Add/remove actions, bind keys/buttons/axes for player controls.",
+			_make_schema(input_map_params)));
+
+	// Navigation baking tool.
+	Array bake_nav_params;
+	bake_nav_params.push_back(Dictionary{ { "name", "node_path" }, { "type", "string" }, { "description", "Path to a NavigationRegion3D node" }, { "required", true } });
+	tools.push_back(_define_tool(
+			"godot_bake_navigation",
+			"Trigger navigation mesh baking on a NavigationRegion3D. Required for AI pathfinding.",
+			_make_schema(bake_nav_params)));
+
+	// Animation tools.
+	Array create_anim_params;
+	create_anim_params.push_back(Dictionary{ { "name", "node_path" }, { "type", "string" }, { "description", "Path to an AnimationPlayer node" }, { "required", true } });
+	create_anim_params.push_back(Dictionary{ { "name", "animation_name" }, { "type", "string" }, { "description", "Name for the new animation (e.g., 'idle', 'walk', 'attack')" }, { "required", true } });
+	create_anim_params.push_back(Dictionary{ { "name", "length" }, { "type", "number" }, { "description", "Animation length in seconds" }, { "required", true } });
+	create_anim_params.push_back(Dictionary{ { "name", "library_name" }, { "type", "string" }, { "description", "Animation library name (default: '' for the default library)" }, { "required", false } });
+	create_anim_params.push_back(Dictionary{ { "name", "loop_mode" }, { "type", "string" }, { "description", "Loop mode: 'none' (default), 'linear', or 'ping_pong'" }, { "required", false } });
+	create_anim_params.push_back(Dictionary{ { "name", "tracks" }, { "type", "array" }, { "description", "Optional array of track definitions: [{type, path, keys}]. Types: 'value', 'position_3d', 'rotation_3d', 'scale_3d', 'method', 'blend_shape'" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_create_animation",
+			"Create an animation with tracks and keyframes on an AnimationPlayer. Supports position/rotation/scale/value/method tracks.",
+			_make_schema(create_anim_params)));
+
+	Array anim_info_params;
+	anim_info_params.push_back(Dictionary{ { "name", "node_path" }, { "type", "string" }, { "description", "Path to an AnimationPlayer or AnimationTree node" }, { "required", true } });
+	anim_info_params.push_back(Dictionary{ { "name", "animation_name" }, { "type", "string" }, { "description", "Optional: get detailed info for a specific animation" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_get_animation_info",
+			"Inspect animations on an AnimationPlayer or AnimationTree: library list, animation details, track summaries, state machine info.",
+			_make_schema(anim_info_params)));
+
 	Dictionary result;
 	result["tools"] = tools;
 	return result;
