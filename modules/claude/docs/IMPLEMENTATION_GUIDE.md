@@ -169,6 +169,9 @@ Implement these tools in `GodotMCPServer`:
 | `godot_capture_screenshot` | P2 | Capture game screenshot |
 | `godot_runtime_camera_control` | P2 | Control debug camera in running game |
 | `godot_get_runtime_camera_info` | P2 | Get camera state from running game |
+| `godot_validate_script` | P2 | Validate GDScript for compilation errors |
+| `godot_get_runtime_errors` | P2 | Get structured runtime errors with call stacks |
+| `godot_get_editor_log` | P2 | Get editor Output panel messages |
 
 ## Phase 5: Editor Integration
 
@@ -271,6 +274,7 @@ modules/claude/
 │   ├── godot_mcp_tools_scene.cpp         ✓
 │   ├── godot_mcp_tools_script.cpp        ✓
 │   ├── godot_mcp_tools_runtime.cpp       ✓
+│   ├── godot_mcp_tools_editor.cpp        ✓
 │   └── godot_mcp_validation.cpp          ✓
 ├── util/
 │   ├── mcp_scene_serializer.h            ✓

@@ -1,6 +1,6 @@
 # MCP Tool Reference
 
-Complete API reference for all 32 tools exposed by the Claude MCP module.
+Complete API reference for all 42 tools exposed by the Claude MCP module.
 
 ## Conventions
 
@@ -535,6 +535,36 @@ Modify an existing script file.
 
 ---
 
+### godot_validate_script
+
+Validate a GDScript file and return compilation errors/warnings without running the game.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | Yes | Resource path to the script (e.g., `res://scripts/player.gd`) |
+
+**Returns:**
+
+| Field | Type | Description |
+|---|---|---|
+| `path` | string | The script path |
+| `valid` | bool | Whether the script compiled without errors |
+| `errors` | array | Errors in this script: `{line, column, message, path}` |
+| `warnings` | array | Warnings: `{start_line, end_line, code, message}` |
+| `depended_errors` | dict | (Optional) Errors in dependencies, keyed by file path |
+
+**Errors:**
+- Same path validation errors as `godot_create_script`
+- `"Script not found: <path>"`
+- `"Cannot read: <path>"`
+- `"No script language found for extension: <ext>"`
+
+**Notes:** Read-only. Uses the same validation pipeline as the editor's Script Editor. The `depended_errors` field only appears when errors exist in files that the validated script depends on (e.g., a parent class or autoloaded script).
+
+---
+
 ## Selection Tools
 
 ### godot_get_selected_nodes
@@ -641,6 +671,45 @@ Get output/log messages from the running game.
 | `messages` | array | Messages, each with `type` (`log`/`warning`/`error`), `text`, and `timestamp` |
 
 **Notes:** Messages are returned newest-first. Buffer holds up to 1000 messages; oldest are trimmed. Buffer clears when a new game session starts.
+
+---
+
+### godot_get_runtime_errors
+
+Get structured runtime errors/warnings from the running game with source locations and call stacks. Shows the same data as the editor's Errors tab.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `limit` | integer | No | Maximum number of errors to return (default 50) |
+| `since_timestamp` | number | No | Only return errors after this Unix timestamp |
+| `severity` | string | No | Filter by severity: `all` (default), `error`, or `warning` |
+| `include_callstack` | boolean | No | Include call stack frames (default: true) |
+
+**Returns:**
+
+| Field | Type | Description |
+|---|---|---|
+| `running` | bool | Whether a game is running |
+| `error_count` | int | Number of returned errors |
+| `errors` | array | Error objects (see below) |
+
+**Error object fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `severity` | string | `error` or `warning` |
+| `timestamp` | number | Unix timestamp |
+| `time` | string | Human-readable time string |
+| `source_file` | string | Source file path |
+| `source_line` | int | Line number in source file |
+| `source_func` | string | Function name |
+| `error` | string | Error type/category |
+| `error_description` | string | Detailed error message |
+| `callstack` | array | (If `include_callstack` is true) Stack frames: `{file, function, line}` |
+
+**Notes:** Errors are returned newest-first. Unlike `godot_get_runtime_output` which captures print/log messages, this tool captures structured errors from Godot's debugger protocol — the same data shown in the editor's Errors tab. The error buffer persists even after the game stops, so you can retrieve errors from the last run.
 
 ---
 
@@ -883,13 +952,13 @@ Set multiple properties across nodes in one call with a single undo action. Ctrl
 
 ### godot_project_files
 
-List project files with resource type metadata, or trigger a filesystem rescan after external file changes.
+List project files with resource type metadata, trigger a filesystem rescan after external file changes, or run import diagnostics.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `action` | string | Yes | `list` (browse files) or `scan` (trigger filesystem rescan) |
+| `action` | string | Yes | `list` (browse files), `scan` (trigger filesystem rescan), or `diagnostics` (scan for invalid imports) |
 | `path` | string | No | Directory path for `list` (default: `res://`) |
 | `recursive` | bool | No | List files recursively (default: false) |
 | `extensions` | array | No | Filter by file extensions, e.g., `["tscn", "gd", "tres"]` |
@@ -905,11 +974,21 @@ List project files with resource type metadata, or trigger a filesystem rescan a
 
 **Returns (scan):** Success message confirming rescan was triggered.
 
+**Returns (diagnostics):**
+
+| Field | Type | Description |
+|---|---|---|
+| `invalid_imports` | array | Files with invalid imports |
+| `total_files` | int | Total files scanned |
+| `invalid_count` | int | Number of files with invalid imports |
+
 **Errors:**
 - `"Directory not found: <path>"` — path doesn't exist in project
+- `"Editor filesystem not ready"` — filesystem not yet initialized
+- `"Unknown action: <action>. Use: 'list', 'scan', or 'diagnostics'"`
 - Standard resource path validation errors
 
-**Notes:** The `list` action always includes immediate subdirectories for navigation, even when filtering by extension. Use `scan` after creating files externally (e.g., via Claude Code's file tools) to make them visible in the editor.
+**Notes:** The `list` action always includes immediate subdirectories for navigation, even when filtering by extension. Use `scan` after creating files externally (e.g., via Claude Code's file tools) to make them visible in the editor. The `diagnostics` action scans the entire project for files with broken import references.
 
 ---
 
@@ -1032,3 +1111,194 @@ Inspect animations on an AnimationPlayer, AnimationMixer, or AnimationTree: libr
 - `"Node is not an AnimationPlayer/AnimationMixer/AnimationTree"` — wrong node type
 
 **Notes:** Without `animation_name`, returns a summary of all libraries and animations. With `animation_name`, includes full track and keyframe data for that specific animation. For AnimationTree nodes, also reports the state machine structure (states, transitions, switch modes).
+
+---
+
+## Editor Tools
+
+### godot_get_editor_log
+
+Get editor-level log messages from the Output panel (startup messages, tool script output, `ERR_PRINT`/`WARN_PRINT` from editor context).
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `limit` | integer | No | Maximum number of messages to return (default 100) |
+| `types` | array | No | Filter by message types: `std`, `error`, `warning`, `editor`, `std_rich`. Returns all types if empty. |
+
+**Returns:**
+
+| Field | Type | Description |
+|---|---|---|
+| `message_count` | int | Number of returned messages |
+| `messages` | array | Messages, each with `type`, `text`, and `count` (repeat count) |
+
+**Message type values:**
+
+| Type | Description |
+|---|---|
+| `std` | Standard output messages |
+| `error` | Error messages |
+| `warning` | Warning messages |
+| `editor` | Editor-specific messages |
+| `std_rich` | Rich text (BBCode) messages |
+
+**Errors:**
+- `"EditorLog not available"` — editor log subsystem not initialized
+
+**Notes:** Read-only. Messages are returned newest-first. Unlike `godot_get_runtime_output` (which captures messages from the running game), this tool reads from the editor's own Output panel — including startup messages, import notifications, and messages from `@tool` scripts running in the editor.
+
+---
+
+### godot_editor_screenshot
+
+Capture a screenshot from the editor viewport (3D or 2D) or the running game. Returns a base64 PNG image.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | No | Screenshot source: `3d` (default), `2d`, or `game` |
+| `viewport_idx` | integer | No | 3D viewport index 0-3 (default 0) |
+| `scale` | number | No | Downscale factor 0.1-1.0 (default 0.5 = half resolution) |
+
+**Returns:**
+
+| Field | Type | Description |
+|---|---|---|
+| `width` | int | Pixel width |
+| `height` | int | Pixel height |
+| `source` | string | Which viewport was captured |
+
+The response includes an MCP `image` content block with the PNG data (base64-encoded).
+
+**Notes:** Read-only. For `game` source, a game must be running. For `3d`/`2d`, captures the editor viewport directly.
+
+---
+
+### godot_editor_viewport_camera
+
+Control the 3D editor viewport camera. Move, orbit, look at targets, focus on selection, or set preset views.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | Yes | `move`, `orbit`, `look_at`, `focus`, `set_view`, or `get_state` |
+| `viewport_idx` | integer | No | 3D viewport index 0-3 (default 0) |
+| `position` | object | No | Camera focal point `{x, y, z}` (for `move`) |
+| `distance` | number | No | Distance from focal point (for `move`, `orbit`) |
+| `x_rotation` | number | No | Pitch in radians (for `move`, `orbit`) |
+| `y_rotation` | number | No | Yaw in radians (for `move`, `orbit`) |
+| `target` | object | No | Look-at target `{x, y, z}` (for `look_at`) |
+| `from` | object | No | Camera position `{x, y, z}` (for `look_at`) |
+| `view` | string | No | View preset: `front`, `back`, `left`, `right`, `top`, `bottom` (for `set_view`) |
+| `orthogonal` | boolean | No | Toggle orthogonal projection |
+| `fov_scale` | number | No | FOV scale 0.1-2.5 |
+
+**Notes:** `get_state` returns the current camera position, rotation, distance, and projection mode. `focus` centers the camera on the current editor selection.
+
+---
+
+### godot_editor_control
+
+Control editor workspace: switch panels, set 3D display mode, toggle grid visibility.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | Yes | `switch_panel`, `set_display_mode`, `toggle_grid`, or `get_state` |
+| `panel` | string | No | `2D`, `3D`, `Script`, or `AssetLib` (for `switch_panel`) |
+| `display_mode` | string | No | `normal`, `wireframe`, `overdraw`, `lighting`, or `unshaded` (for `set_display_mode`) |
+| `viewport_idx` | integer | No | Which 3D viewport to affect (default 0) |
+| `grid` | boolean | No | Grid visibility (for `toggle_grid`) |
+
+**Notes:** `get_state` returns the current active panel, display mode, and grid state.
+
+---
+
+### godot_canvas_view
+
+Control the 2D canvas editor: pan, zoom, center on points, focus selection, configure snapping.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | Yes | `get_state`, `center_at`, `zoom`, `pan`, `focus`, or `set_snap` |
+| `position` | object | No | World position `{x, y}` (for `center_at`, `pan`) |
+| `zoom` | number | No | Zoom level (for `zoom`) |
+| `grid_snap` | boolean | No | Enable grid snapping (for `set_snap`) |
+| `smart_snap` | boolean | No | Enable smart snapping (for `set_snap`) |
+| `grid_step` | object | No | Grid step size `{x, y}` (for `set_snap`) |
+
+**Notes:** `get_state` returns current zoom, scroll offset, and snap settings. `focus` centers on the current editor selection.
+
+---
+
+### godot_editor_state
+
+Get comprehensive editor state in one call: viewport cameras, snap settings, scene info, selected nodes.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `include_3d` | boolean | No | Include 3D viewport state (default true) |
+| `include_2d` | boolean | No | Include 2D canvas state (default true) |
+
+**Returns:**
+
+| Field | Type | Description |
+|---|---|---|
+| `active_panel` | string | Currently active editor panel |
+| `open_scenes` | array | List of open scene paths |
+| `current_scene` | string | Path of the currently edited scene |
+| `selected_nodes` | array | Currently selected node paths |
+| `viewport_3d` | object | 3D viewport state (if `include_3d`) |
+| `canvas_2d` | object | 2D canvas state (if `include_2d`) |
+
+**Notes:** Read-only. Combines information from multiple sources into a single call for efficiency.
+
+---
+
+## Transform Tools
+
+### godot_transform_nodes
+
+Apply relative transforms to nodes (translate, rotate, scale by delta). Works on both Node3D and Node2D with undo/redo.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | Yes | `translate`, `rotate`, `scale`, or `set_transform` |
+| `node_paths` | array | Yes | Node paths to transform |
+| `value` | object | No | Delta vector `{x, y, z}` for translate/rotate/scale |
+| `local` | boolean | No | Apply in local space (default false = global) |
+| `transform` | object | No | Full transform for `set_transform`: `{origin: {x,y,z}, rotation: {x,y,z}, scale: {x,y,z}}` |
+
+**Notes:** All operations support undo/redo. For `scale`, missing components default to 1.0 (identity). For `translate` and `rotate`, missing components default to 0.0.
+
+---
+
+## Scene Operation Tools
+
+### godot_scene_operations
+
+Hierarchy operations: duplicate nodes, reparent, set visibility, toggle editor lock, manage groups. All with undo/redo.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | Yes | `duplicate`, `reparent`, `set_visible`, `toggle_lock`, or `group` |
+| `node_paths` | array | Yes | Target node paths |
+| `new_parent` | string | No | New parent path (for `reparent`) |
+| `visible` | boolean | No | Visibility state (for `set_visible`) |
+| `group_name` | string | No | Group name (for `group` — toggles membership) |
+| `offset` | object | No | Position offset `{x,y,z}` for duplicated nodes |
+
+**Notes:** All operations support undo/redo. `toggle_lock` toggles the `_edit_lock_` meta on each node. `group` toggles group membership — nodes already in the group are removed, others are added.

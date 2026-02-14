@@ -33,6 +33,8 @@
 #include "../util/mcp_scene_serializer.h"
 #include "core/io/resource_loader.h"
 #include "core/object/class_db.h"
+#include "scene/2d/node_2d.h"
+#include "scene/3d/node_3d.h"
 #include "scene/main/node.h"
 #include "scene/resources/packed_scene.h"
 
@@ -792,6 +794,395 @@ Dictionary GodotMCPServer::_tool_set_properties_batch(const Dictionary &p_args) 
 
 	return _success_result("Set " + itos(ops.size()) + " properties in 1 undo action",
 			Dictionary{ { "count", ops.size() } });
+#else
+	return _error_result("Editor functionality not available");
+#endif
+}
+
+// --- Transform Nodes Tool ---
+
+// Vector helpers (local to this TU, same as in runtime/editor tools).
+static Vector3 _scene_dict_to_vec3(const Dictionary &p_dict) {
+	return Vector3(p_dict.get("x", 0.0), p_dict.get("y", 0.0), p_dict.get("z", 0.0));
+}
+
+static Vector2 _scene_dict_to_vec2(const Dictionary &p_dict) {
+	return Vector2(p_dict.get("x", 0.0), p_dict.get("y", 0.0));
+}
+
+Dictionary GodotMCPServer::_tool_transform_nodes(const Dictionary &p_args) {
+#ifdef TOOLS_ENABLED
+	String action = p_args.get("action", "");
+	if (action.is_empty()) {
+		return _error_result("Missing required 'action' parameter");
+	}
+
+	Array node_paths = p_args.get("node_paths", Array());
+	if (node_paths.is_empty()) {
+		return _error_result("Missing or empty 'node_paths' parameter");
+	}
+
+	bool local = p_args.get("local", false);
+
+	// Resolve all nodes first.
+	Vector<Node *> nodes;
+	for (int i = 0; i < node_paths.size(); i++) {
+		String path = node_paths[i];
+		String error;
+		if (!_validate_node_path(path, error)) {
+			return _error_result("Node " + itos(i) + ": " + error);
+		}
+		Node *node = _resolve_node_path(path);
+		if (!node) {
+			return _error_result("Node not found: " + path);
+		}
+		nodes.push_back(node);
+	}
+
+	EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
+
+	// --- translate ---
+	if (action == "translate") {
+		if (!p_args.has("value")) {
+			return _error_result("'translate' requires 'value' parameter");
+		}
+		Dictionary val = p_args["value"];
+
+		ur->create_action("MCP: Translate " + itos(nodes.size()) + " nodes");
+		for (Node *node : nodes) {
+			Node3D *n3d = Object::cast_to<Node3D>(node);
+			Node2D *n2d = Object::cast_to<Node2D>(node);
+			if (n3d) {
+				Vector3 delta = _scene_dict_to_vec3(val);
+				if (local) {
+					ur->add_do_method(n3d, "set_position", n3d->get_position() + delta);
+					ur->add_undo_method(n3d, "set_position", n3d->get_position());
+				} else {
+					ur->add_do_method(n3d, "set_global_position", n3d->get_global_position() + delta);
+					ur->add_undo_method(n3d, "set_global_position", n3d->get_global_position());
+				}
+			} else if (n2d) {
+				Vector2 delta = _scene_dict_to_vec2(val);
+				if (local) {
+					ur->add_do_method(n2d, "set_position", n2d->get_position() + delta);
+					ur->add_undo_method(n2d, "set_position", n2d->get_position());
+				} else {
+					ur->add_do_method(n2d, "set_global_position", n2d->get_global_position() + delta);
+					ur->add_undo_method(n2d, "set_global_position", n2d->get_global_position());
+				}
+			} else {
+				continue;
+			}
+		}
+		ur->commit_action();
+		return _success_result("Translated " + itos(nodes.size()) + " nodes");
+	}
+
+	// --- rotate ---
+	if (action == "rotate") {
+		if (!p_args.has("value")) {
+			return _error_result("'rotate' requires 'value' parameter");
+		}
+		Dictionary val = p_args["value"];
+
+		ur->create_action("MCP: Rotate " + itos(nodes.size()) + " nodes");
+		for (Node *node : nodes) {
+			Node3D *n3d = Object::cast_to<Node3D>(node);
+			Node2D *n2d = Object::cast_to<Node2D>(node);
+			if (n3d) {
+				Vector3 delta = _scene_dict_to_vec3(val);
+				ur->add_do_method(n3d, "set_rotation", n3d->get_rotation() + delta);
+				ur->add_undo_method(n3d, "set_rotation", n3d->get_rotation());
+			} else if (n2d) {
+				// 2D rotation: use x component as angle in radians.
+				float delta = val.get("x", 0.0);
+				ur->add_do_method(n2d, "set_rotation", n2d->get_rotation() + delta);
+				ur->add_undo_method(n2d, "set_rotation", n2d->get_rotation());
+			} else {
+				continue;
+			}
+		}
+		ur->commit_action();
+		return _success_result("Rotated " + itos(nodes.size()) + " nodes");
+	}
+
+	// --- scale ---
+	if (action == "scale") {
+		if (!p_args.has("value")) {
+			return _error_result("'scale' requires 'value' parameter (scale factor)");
+		}
+		Dictionary val = p_args["value"];
+
+		ur->create_action("MCP: Scale " + itos(nodes.size()) + " nodes");
+		for (Node *node : nodes) {
+			Node3D *n3d = Object::cast_to<Node3D>(node);
+			Node2D *n2d = Object::cast_to<Node2D>(node);
+			if (n3d) {
+				Vector3 factor = Vector3(val.get("x", 1.0), val.get("y", 1.0), val.get("z", 1.0));
+				ur->add_do_method(n3d, "set_scale", n3d->get_scale() * factor);
+				ur->add_undo_method(n3d, "set_scale", n3d->get_scale());
+			} else if (n2d) {
+				Vector2 factor = Vector2(val.get("x", 1.0), val.get("y", 1.0));
+				ur->add_do_method(n2d, "set_scale", n2d->get_scale() * factor);
+				ur->add_undo_method(n2d, "set_scale", n2d->get_scale());
+			} else {
+				continue;
+			}
+		}
+		ur->commit_action();
+		return _success_result("Scaled " + itos(nodes.size()) + " nodes");
+	}
+
+	// --- set_transform ---
+	if (action == "set_transform") {
+		if (!p_args.has("transform")) {
+			return _error_result("'set_transform' requires 'transform' parameter {origin, rotation, scale}");
+		}
+		Dictionary xform = p_args["transform"];
+
+		ur->create_action("MCP: Set transform on " + itos(nodes.size()) + " nodes");
+		for (Node *node : nodes) {
+			Node3D *n3d = Object::cast_to<Node3D>(node);
+			Node2D *n2d = Object::cast_to<Node2D>(node);
+			if (n3d) {
+				if (xform.has("origin")) {
+					ur->add_do_method(n3d, "set_position", _scene_dict_to_vec3(xform["origin"]));
+					ur->add_undo_method(n3d, "set_position", n3d->get_position());
+				}
+				if (xform.has("rotation")) {
+					ur->add_do_method(n3d, "set_rotation", _scene_dict_to_vec3(xform["rotation"]));
+					ur->add_undo_method(n3d, "set_rotation", n3d->get_rotation());
+				}
+				if (xform.has("scale")) {
+					Dictionary s3 = xform["scale"];
+					ur->add_do_method(n3d, "set_scale", Vector3(s3.get("x", 1.0), s3.get("y", 1.0), s3.get("z", 1.0)));
+					ur->add_undo_method(n3d, "set_scale", n3d->get_scale());
+				}
+			} else if (n2d) {
+				if (xform.has("origin")) {
+					ur->add_do_method(n2d, "set_position", _scene_dict_to_vec2(xform["origin"]));
+					ur->add_undo_method(n2d, "set_position", n2d->get_position());
+				}
+				if (xform.has("rotation")) {
+					float rot = ((Dictionary)xform["rotation"]).get("x", 0.0);
+					ur->add_do_method(n2d, "set_rotation", rot);
+					ur->add_undo_method(n2d, "set_rotation", n2d->get_rotation());
+				}
+				if (xform.has("scale")) {
+					Dictionary s2 = xform["scale"];
+					ur->add_do_method(n2d, "set_scale", Vector2(s2.get("x", 1.0), s2.get("y", 1.0)));
+					ur->add_undo_method(n2d, "set_scale", n2d->get_scale());
+				}
+			}
+		}
+		ur->commit_action();
+		return _success_result("Transform set on " + itos(nodes.size()) + " nodes");
+	}
+
+	return _error_result("Unknown action: '" + action + "'. Use: translate, rotate, scale, set_transform");
+#else
+	return _error_result("Editor functionality not available");
+#endif
+}
+
+// --- Scene Operations Tool ---
+
+static void _set_owner_recursive(Node *p_node, Node *p_owner) {
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		Node *child = p_node->get_child(i);
+		child->set_owner(p_owner);
+		_set_owner_recursive(child, p_owner);
+	}
+}
+
+Dictionary GodotMCPServer::_tool_scene_operations(const Dictionary &p_args) {
+#ifdef TOOLS_ENABLED
+	String action = p_args.get("action", "");
+	if (action.is_empty()) {
+		return _error_result("Missing required 'action' parameter");
+	}
+
+	Array node_paths = p_args.get("node_paths", Array());
+	if (node_paths.is_empty()) {
+		return _error_result("Missing or empty 'node_paths' parameter");
+	}
+
+	// Resolve all nodes first.
+	Vector<Node *> nodes;
+	for (int i = 0; i < node_paths.size(); i++) {
+		String path = node_paths[i];
+		String error;
+		if (!_validate_node_path(path, error)) {
+			return _error_result("Node " + itos(i) + ": " + error);
+		}
+		Node *node = _resolve_node_path(path);
+		if (!node) {
+			return _error_result("Node not found: " + path);
+		}
+		nodes.push_back(node);
+	}
+
+	Node *scene_root = _get_scene_root();
+	if (!scene_root) {
+		return _error_result("No scene is currently open");
+	}
+
+	EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
+
+	// --- duplicate ---
+	if (action == "duplicate") {
+		Dictionary offset_dict = p_args.get("offset", Dictionary());
+		Array new_paths;
+
+		ur->create_action("MCP: Duplicate " + itos(nodes.size()) + " nodes");
+		for (Node *node : nodes) {
+			Node *parent = node->get_parent();
+			if (!parent) {
+				continue;
+			}
+
+			Node *dup = node->duplicate();
+			if (!dup) {
+				continue;
+			}
+
+			ur->add_do_method(parent, "add_child", dup, true);
+			ur->add_do_method(dup, "set_owner", scene_root);
+			ur->add_do_reference(dup);
+			ur->add_undo_method(parent, "remove_child", dup);
+
+			new_paths.push_back(String(parent->get_path()) + "/" + String(dup->get_name()));
+		}
+		ur->commit_action();
+
+		// Fix ownership of all descendants after commit (do methods executed).
+		// Re-resolve the duplicated nodes to set child ownership.
+		for (int i = 0; i < new_paths.size(); i++) {
+			Node *dup = _resolve_node_path(new_paths[i]);
+			if (dup) {
+				_set_owner_recursive(dup, scene_root);
+
+				// Apply position offset if specified.
+				if (!offset_dict.is_empty()) {
+					Node3D *n3d = Object::cast_to<Node3D>(dup);
+					Node2D *n2d = Object::cast_to<Node2D>(dup);
+					if (n3d) {
+						n3d->set_position(n3d->get_position() + _scene_dict_to_vec3(offset_dict));
+					} else if (n2d) {
+						n2d->set_position(n2d->get_position() + _scene_dict_to_vec2(offset_dict));
+					}
+				}
+			}
+		}
+
+		return _success_result("Duplicated " + itos(new_paths.size()) + " nodes",
+				Dictionary{ { "new_paths", new_paths } });
+	}
+
+	// --- reparent ---
+	if (action == "reparent") {
+		String new_parent_path = p_args.get("new_parent", "");
+		if (new_parent_path.is_empty()) {
+			return _error_result("'reparent' requires 'new_parent' parameter");
+		}
+
+		String error;
+		if (!_validate_node_path(new_parent_path, error)) {
+			return _error_result(error);
+		}
+		Node *new_parent = _resolve_node_path(new_parent_path);
+		if (!new_parent) {
+			return _error_result("New parent not found: " + new_parent_path);
+		}
+
+		ur->create_action("MCP: Reparent " + itos(nodes.size()) + " nodes");
+		for (Node *node : nodes) {
+			if (node == scene_root) {
+				continue; // Cannot reparent the scene root.
+			}
+			Node *old_parent = node->get_parent();
+			if (!old_parent || old_parent == new_parent) {
+				continue;
+			}
+
+			ur->add_do_method(old_parent, "remove_child", node);
+			ur->add_do_method(new_parent, "add_child", node, true);
+			ur->add_do_method(node, "set_owner", scene_root);
+			ur->add_undo_method(new_parent, "remove_child", node);
+			ur->add_undo_method(old_parent, "add_child", node, true);
+			ur->add_undo_method(node, "set_owner", scene_root);
+			ur->add_undo_reference(node);
+		}
+		ur->commit_action();
+
+		// Fix descendant ownership after reparent.
+		for (Node *node : nodes) {
+			_set_owner_recursive(node, scene_root);
+		}
+
+		return _success_result("Reparented " + itos(nodes.size()) + " nodes to " + new_parent_path);
+	}
+
+	// --- set_visible ---
+	if (action == "set_visible") {
+		bool visible = p_args.get("visible", true);
+
+		ur->create_action("MCP: Set visibility on " + itos(nodes.size()) + " nodes");
+		for (Node *node : nodes) {
+			// Both Node3D and CanvasItem have a "visible" property.
+			Variant old_val = node->get("visible");
+			if (old_val.get_type() != Variant::NIL) {
+				ur->add_do_method(node, "set", "visible", visible);
+				ur->add_undo_method(node, "set", "visible", old_val);
+			}
+		}
+		ur->commit_action();
+		return _success_result(visible ? "Made visible" : "Made hidden");
+	}
+
+	// --- toggle_lock ---
+	if (action == "toggle_lock") {
+		ur->create_action("MCP: Toggle lock on " + itos(nodes.size()) + " nodes");
+		for (Node *node : nodes) {
+			if (node->has_meta("_edit_lock_")) {
+				ur->add_do_method(node, "remove_meta", "_edit_lock_");
+				ur->add_undo_method(node, "set_meta", "_edit_lock_", true);
+			} else {
+				ur->add_do_method(node, "set_meta", "_edit_lock_", true);
+				ur->add_undo_method(node, "remove_meta", "_edit_lock_");
+			}
+		}
+		ur->commit_action();
+		return _success_result("Toggled lock on " + itos(nodes.size()) + " nodes");
+	}
+
+	// --- group ---
+	if (action == "group") {
+		String group_name = p_args.get("group_name", "");
+		if (group_name.is_empty()) {
+			return _error_result("'group' action requires 'group_name' parameter");
+		}
+
+		int added = 0;
+		int removed = 0;
+		ur->create_action("MCP: Toggle group '" + group_name + "' on " + itos(nodes.size()) + " nodes");
+		for (Node *node : nodes) {
+			if (node->is_in_group(group_name)) {
+				ur->add_do_method(node, "remove_from_group", group_name);
+				ur->add_undo_method(node, "add_to_group", group_name, true);
+				removed++;
+			} else {
+				ur->add_do_method(node, "add_to_group", group_name, true);
+				ur->add_undo_method(node, "remove_from_group", group_name);
+				added++;
+			}
+		}
+		ur->commit_action();
+
+		return _success_result("Group '" + group_name + "': added " + itos(added) + ", removed " + itos(removed));
+	}
+
+	return _error_result("Unknown action: '" + action + "'. Use: duplicate, reparent, set_visible, toggle_lock, group");
 #else
 	return _error_result("Editor functionality not available");
 #endif

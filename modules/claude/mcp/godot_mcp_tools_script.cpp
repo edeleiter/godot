@@ -162,6 +162,88 @@ Dictionary GodotMCPServer::_tool_read_script(const Dictionary &p_args) {
 			Dictionary{ { "path", path }, { "content", content } });
 }
 
+Dictionary GodotMCPServer::_tool_validate_script(const Dictionary &p_args) {
+	String path = p_args.get("path", "");
+
+	String error;
+	if (!_validate_script_path(path, error)) {
+		return _error_result(error);
+	}
+
+	if (!FileAccess::exists(path)) {
+		return _error_result("Script not found: " + path);
+	}
+
+	// Read script source from disk.
+	Ref<FileAccess> file = FileAccess::open(path, FileAccess::READ);
+	if (!file.is_valid()) {
+		return _error_result("Cannot read: " + path);
+	}
+	String source = file->get_as_text();
+	file->close();
+
+	// Find the matching ScriptLanguage by file extension.
+	String ext = path.get_extension();
+	ScriptLanguage *lang = ScriptServer::get_language_for_extension(ext);
+	if (!lang) {
+		return _error_result("No script language found for extension: " + ext);
+	}
+
+	List<String> functions;
+	List<ScriptLanguage::ScriptError> errors_list;
+	List<ScriptLanguage::Warning> warnings_list;
+	HashSet<int> safe_lines;
+
+	bool valid = lang->validate(source, path, &functions, &errors_list, &warnings_list, &safe_lines);
+
+	// Separate own errors from depended errors (errors in other files).
+	Array own_errors;
+	Dictionary depended_errors;
+
+	for (const ScriptLanguage::ScriptError &e : errors_list) {
+		Dictionary err;
+		err["line"] = e.line;
+		err["column"] = e.column;
+		err["message"] = e.message;
+
+		if (!e.path.is_empty() && e.path != path) {
+			// Error belongs to a dependency.
+			String dep_path = e.path;
+			err["path"] = dep_path;
+			Array dep_list;
+			if (depended_errors.has(dep_path)) {
+				dep_list = depended_errors[dep_path];
+			}
+			dep_list.push_back(err);
+			depended_errors[dep_path] = dep_list;
+		} else {
+			err["path"] = path;
+			own_errors.push_back(err);
+		}
+	}
+
+	Array warns;
+	for (const ScriptLanguage::Warning &w : warnings_list) {
+		Dictionary warn;
+		warn["start_line"] = w.start_line;
+		warn["end_line"] = w.end_line;
+		warn["code"] = w.string_code;
+		warn["message"] = w.message;
+		warns.push_back(warn);
+	}
+
+	Dictionary data;
+	data["path"] = path;
+	data["valid"] = valid;
+	data["errors"] = own_errors;
+	data["warnings"] = warns;
+	if (!depended_errors.is_empty()) {
+		data["depended_errors"] = depended_errors;
+	}
+
+	return _success_result(valid ? "Script is valid" : "Script has errors", data);
+}
+
 Dictionary GodotMCPServer::_tool_modify_script(const Dictionary &p_args) {
 #ifdef TOOLS_ENABLED
 	String path = p_args.get("path", "");

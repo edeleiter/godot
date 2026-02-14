@@ -118,8 +118,43 @@ Dictionary GodotMCPServer::_tool_project_files(const Dictionary &p_args) {
 		data["subdirectories"] = subdirs;
 		return _success_result("Listed " + itos(files.size()) + " files in " + path, data);
 
+	} else if (action == "diagnostics") {
+		// Scan for files with invalid imports.
+		EditorFileSystemDirectory *root = efs->get_filesystem();
+		if (!root) {
+			return _error_result("Editor filesystem not ready");
+		}
+
+		Array invalid_imports;
+		int total_files = 0;
+
+		struct DiagHelper {
+			static void scan_dir(EditorFileSystemDirectory *p_dir, Array &r_invalid, int &r_total) {
+				for (int i = 0; i < p_dir->get_file_count(); i++) {
+					r_total++;
+					if (!p_dir->get_file_import_is_valid(i)) {
+						Dictionary entry;
+						entry["path"] = p_dir->get_file_path(i);
+						entry["type"] = p_dir->get_file_type(i);
+						r_invalid.push_back(entry);
+					}
+				}
+				for (int i = 0; i < p_dir->get_subdir_count(); i++) {
+					scan_dir(p_dir->get_subdir(i), r_invalid, r_total);
+				}
+			}
+		};
+
+		DiagHelper::scan_dir(root, invalid_imports, total_files);
+
+		Dictionary data;
+		data["invalid_imports"] = invalid_imports;
+		data["total_files"] = total_files;
+		data["invalid_count"] = invalid_imports.size();
+		return _success_result("Diagnostics complete: " + itos(invalid_imports.size()) + " invalid imports out of " + itos(total_files) + " files", data);
+
 	} else {
-		return _error_result("Unknown action: " + action + ". Use: 'list' or 'scan'");
+		return _error_result("Unknown action: " + action + ". Use: 'list', 'scan', or 'diagnostics'");
 	}
 #else
 	return _error_result("Editor functionality not available");

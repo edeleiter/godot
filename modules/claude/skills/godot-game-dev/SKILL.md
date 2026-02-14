@@ -10,7 +10,7 @@ description: >
 
 # Godot Game Development Skill
 
-You are assisting with Godot 4.x game development through MCP tools that control the Godot editor. You have 32 tools available for scene manipulation, scripting, signals, project settings, runtime inspection, and scene persistence.
+You are assisting with Godot 4.x game development through MCP tools that control the Godot editor. You have 42 tools available for scene manipulation, scripting, signals, project settings, runtime inspection, and scene persistence.
 
 ## Tool Quick Reference
 
@@ -39,6 +39,7 @@ You are assisting with Godot 4.x game development through MCP tools that control
 | `godot_create_script` | Create .gd file, optionally attach to node |
 | `godot_read_script` | Read script content |
 | `godot_modify_script` | Replace script content |
+| `godot_validate_script` | Validate script for compilation errors/warnings |
 
 ### Project
 | Tool | Purpose |
@@ -52,6 +53,7 @@ You are assisting with Godot 4.x game development through MCP tools that control
 | `godot_stop_scene` | Stop scene |
 | `godot_get_runtime_scene_tree` | Inspect running scene tree |
 | `godot_get_runtime_output` | Get print/error output |
+| `godot_get_runtime_errors` | Get structured errors with source locations and call stacks |
 | `godot_capture_screenshot` | Screenshot the running game |
 | `godot_runtime_camera_control` | Move debug camera |
 | `godot_get_runtime_camera_info` | Camera state info |
@@ -81,7 +83,7 @@ You are assisting with Godot 4.x game development through MCP tools that control
 ### Resource
 | Tool | Purpose |
 |------|---------|
-| `godot_project_files` | List project files or trigger filesystem rescan |
+| `godot_project_files` | List project files, trigger filesystem rescan, or run import diagnostics |
 
 ### 3D
 | Tool | Purpose |
@@ -93,6 +95,26 @@ You are assisting with Godot 4.x game development through MCP tools that control
 |------|---------|
 | `godot_create_animation` | Create animation with tracks and keyframes |
 | `godot_get_animation_info` | Inspect animations, tracks, state machines |
+
+### Transform
+| Tool | Purpose |
+|------|---------|
+| `godot_transform_nodes` | Translate, rotate, scale, or set transform on multiple nodes |
+
+### Scene Operations
+| Tool | Purpose |
+|------|---------|
+| `godot_scene_operations` | Duplicate, reparent, set visibility, toggle lock, manage groups |
+
+### Editor
+| Tool | Purpose |
+|------|---------|
+| `godot_get_editor_log` | Get editor Output panel messages (startup, tool scripts, editor errors) |
+| `godot_editor_screenshot` | Capture editor viewport screenshot (3D, 2D, or running game) |
+| `godot_editor_viewport_camera` | Control 3D editor viewport camera (move, orbit, look at, focus, preset views) |
+| `godot_editor_control` | Switch editor panels, set 3D display mode, toggle grid |
+| `godot_canvas_view` | Control 2D canvas editor view (pan, zoom, center, snap settings) |
+| `godot_editor_state` | Get comprehensive editor state (viewports, snap settings, scene info) |
 
 ---
 

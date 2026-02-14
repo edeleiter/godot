@@ -36,12 +36,14 @@
 #include "editor/settings/editor_command_palette.h"
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/editor_scale.h"
+#include "editor/themes/editor_theme_manager.h"
 #include "scene/gui/dialogs.h"
 #include "scene/gui/label.h"
 #include "scene/gui/line_edit.h"
 #include "scene/gui/separator.h"
 #include "scene/gui/spin_box.h"
 #include "scene/main/timer.h"
+#include "scene/resources/style_box_flat.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 // TerminalView
@@ -84,6 +86,36 @@ void TerminalView::_update_font() {
 		cell_width = font->get_char_size('M', font_size).x;
 		cell_height = font->get_height(font_size);
 		ascent = font->get_ascent(font_size);
+	}
+}
+
+void TerminalView::_update_colors() {
+	const bool dark = EditorThemeManager::is_dark_theme();
+	if (dark) {
+		color_bg = Color(0.1f, 0.1f, 0.1f);
+		color_cursor = Color(0.8f, 0.8f, 0.8f, 0.8f);
+		color_cursor_text = Color(0, 0, 0);
+		color_selection = Color(0.3f, 0.5f, 0.8f, 0.5f);
+		color_selection_text = Color(1, 1, 1);
+		color_focus_border = Color(0.4f, 0.6f, 1.0f, 0.5f);
+		color_exited_text = Color(0.7f, 0.7f, 0.7f);
+	} else {
+		color_bg = Color(1.0f, 1.0f, 1.0f);
+		color_cursor = Color(0.2f, 0.2f, 0.2f, 0.8f);
+		color_cursor_text = Color(1, 1, 1);
+		color_selection = Color(0.3f, 0.5f, 0.8f, 0.3f);
+		color_selection_text = Color(0, 0, 0);
+		color_focus_border = Color(0.2f, 0.4f, 0.8f, 0.5f);
+		color_exited_text = Color(0.4f, 0.4f, 0.4f);
+	}
+	if (state.is_valid()) {
+		if (dark) {
+			state->set_default_fg(Color(1, 1, 1));
+			state->set_default_bg(Color(0, 0, 0, 0));
+		} else {
+			state->set_default_fg(Color(0.1f, 0.1f, 0.1f));
+			state->set_default_bg(Color(0, 0, 0, 0));
+		}
 	}
 }
 
@@ -223,10 +255,10 @@ void TerminalView::_draw_cell(const AnsiTerminalState::Cell &p_cell, int p_x, in
 	if (p_cell.inverse) {
 		SWAP(fg, bg);
 		if (bg.a < 0.01f) {
-			bg = Color(1, 1, 1);
+			bg = color_cursor;
 		}
 		if (fg.a < 0.01f) {
-			fg = Color(0, 0, 0);
+			fg = color_bg;
 		}
 	}
 
@@ -235,8 +267,8 @@ void TerminalView::_draw_cell(const AnsiTerminalState::Cell &p_cell, int p_x, in
 	}
 
 	if (p_is_selected) {
-		bg = Color(0.3f, 0.5f, 0.8f, 0.5f);
-		fg = Color(1, 1, 1);
+		bg = color_selection;
+		fg = color_selection_text;
 	}
 
 	// Draw background.
@@ -246,12 +278,11 @@ void TerminalView::_draw_cell(const AnsiTerminalState::Cell &p_cell, int p_x, in
 
 	// Draw cursor.
 	if (p_is_cursor && cursor_blink_on) {
-		Color cursor_color = Color(0.8f, 0.8f, 0.8f, 0.8f);
 		if (has_focus()) {
-			draw_rect(Rect2(p_x, p_y, cell_width, cell_height), cursor_color);
-			fg = Color(0, 0, 0); // Text under solid cursor.
+			draw_rect(Rect2(p_x, p_y, cell_width, cell_height), color_cursor);
+			fg = color_cursor_text; // Text under solid cursor.
 		} else {
-			draw_rect(Rect2(p_x, p_y, cell_width, cell_height), cursor_color, false, 1.0f);
+			draw_rect(Rect2(p_x, p_y, cell_width, cell_height), color_cursor, false, 1.0f);
 		}
 	}
 
@@ -281,6 +312,7 @@ void TerminalView::_notification(int p_what) {
 		case NOTIFICATION_ENTER_TREE:
 		case NOTIFICATION_THEME_CHANGED: {
 			_update_font();
+			_update_colors();
 			_recompute_grid_size();
 		} break;
 
@@ -295,8 +327,7 @@ void TerminalView::_notification(int p_what) {
 			}
 
 			// Draw terminal background.
-			Color term_bg = Color(0.1f, 0.1f, 0.1f);
-			draw_rect(Rect2(Point2(), get_size()), term_bg);
+			draw_rect(Rect2(Point2(), get_size()), color_bg);
 
 			int rows = state->get_rows();
 			int cols = state->get_cols();
@@ -340,8 +371,7 @@ void TerminalView::_notification(int p_what) {
 
 			// Draw focus border.
 			if (has_focus()) {
-				Color focus_color = Color(0.4f, 0.6f, 1.0f, 0.5f);
-				draw_rect(Rect2(Point2(), get_size()), focus_color, false, 2.0f);
+				draw_rect(Rect2(Point2(), get_size()), color_focus_border, false, 2.0f);
 			}
 
 			// Draw "process exited" overlay.
@@ -351,7 +381,7 @@ void TerminalView::_notification(int p_what) {
 					Vector2 text_size = font->get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size);
 					Vector2 pos = (get_size() - text_size) * 0.5f;
 					pos.y += ascent;
-					font->draw_string(get_canvas_item(), pos, msg, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.7f, 0.7f, 0.7f));
+					font->draw_string(get_canvas_item(), pos, msg, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color_exited_text);
 				}
 			}
 		} break;
@@ -486,8 +516,16 @@ void TerminalView::gui_input(const Ref<InputEvent> &p_event) {
 					key_data.write[0] = 0x7f;
 				} break;
 				case Key::TAB: {
-					key_data.resize(1);
-					key_data.write[0] = '\t';
+					if (shift) {
+						// Shift+Tab: xterm backtab (CSI Z).
+						key_data.resize(3);
+						key_data.write[0] = 0x1b;
+						key_data.write[1] = '[';
+						key_data.write[2] = 'Z';
+					} else {
+						key_data.resize(1);
+						key_data.write[0] = '\t';
+					}
 				} break;
 				case Key::ESCAPE: {
 					key_data.resize(1);
@@ -666,6 +704,24 @@ void ClaudeTerminalDock::_notification(int p_what) {
 		case NOTIFICATION_THEME_CHANGED: {
 			if (settings_button) {
 				settings_button->set_button_icon(get_editor_theme_icon(SNAME("Tools")));
+			}
+			if (tab_bar) {
+				Color font_color = get_theme_color(SNAME("font_color"), SNAME("TabBar"));
+
+				Ref<StyleBoxFlat> hover_style;
+				hover_style.instantiate();
+				hover_style->set_bg_color(Color(font_color, 0.15));
+				hover_style->set_corner_radius_all(2 * EDSCALE);
+				hover_style->set_content_margin_all(2 * EDSCALE);
+
+				Ref<StyleBoxFlat> pressed_style;
+				pressed_style.instantiate();
+				pressed_style->set_bg_color(Color(font_color, 0.25));
+				pressed_style->set_corner_radius_all(2 * EDSCALE);
+				pressed_style->set_content_margin_all(2 * EDSCALE);
+
+				tab_bar->add_theme_style_override(SNAME("button_highlight"), hover_style);
+				tab_bar->add_theme_style_override(SNAME("button_pressed"), pressed_style);
 			}
 		} break;
 

@@ -85,6 +85,9 @@ Add to your MCP settings (shown in the editor dock):
 | `godot_capture_screenshot` | Capture running game screenshot | Read-only |
 | `godot_runtime_camera_control` | Control debug camera in running game | Low (camera override) |
 | `godot_get_runtime_camera_info` | Get camera state from running game | Read-only |
+| `godot_validate_script` | Validate GDScript for compilation errors | Read-only |
+| `godot_get_runtime_errors` | Get structured runtime errors with call stacks | Read-only |
+| `godot_get_editor_log` | Get editor Output panel messages | Read-only |
 
 ## Resources
 

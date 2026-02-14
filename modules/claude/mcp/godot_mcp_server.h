@@ -106,6 +106,7 @@ private:
 	Dictionary _tool_create_script(const Dictionary &p_args);
 	Dictionary _tool_read_script(const Dictionary &p_args);
 	Dictionary _tool_modify_script(const Dictionary &p_args);
+	Dictionary _tool_validate_script(const Dictionary &p_args);
 
 	// Tool implementations — Selection
 	Dictionary _tool_get_selected_nodes(const Dictionary &p_args);
@@ -141,9 +142,22 @@ private:
 	Dictionary _tool_stop_scene(const Dictionary &p_args);
 	Dictionary _tool_get_runtime_scene_tree(const Dictionary &p_args);
 	Dictionary _tool_get_runtime_output(const Dictionary &p_args);
+	Dictionary _tool_get_runtime_errors(const Dictionary &p_args);
 	Dictionary _tool_capture_screenshot(const Dictionary &p_args);
 	Dictionary _tool_runtime_camera_control(const Dictionary &p_args);
 	Dictionary _tool_get_runtime_camera_info(const Dictionary &p_args);
+
+	// Tool implementations — Editor
+	Dictionary _tool_get_editor_log(const Dictionary &p_args);
+	Dictionary _tool_editor_screenshot(const Dictionary &p_args);
+	Dictionary _tool_editor_viewport_camera(const Dictionary &p_args);
+	Dictionary _tool_editor_control(const Dictionary &p_args);
+	Dictionary _tool_canvas_view(const Dictionary &p_args);
+	Dictionary _tool_editor_state(const Dictionary &p_args);
+
+	// Tool implementations — Spatial & Scene Operations
+	Dictionary _tool_transform_nodes(const Dictionary &p_args);
+	Dictionary _tool_scene_operations(const Dictionary &p_args);
 
 	// Camera control helpers
 	Dictionary _camera_control_3d(const String &p_action, const Dictionary &p_args);
@@ -162,6 +176,26 @@ private:
 	Vector<OutputMessage> output_buffer;
 	bool debugger_connected = false;
 
+	// Error buffer for structured runtime errors from the debugger.
+	struct RuntimeError {
+		bool warning = false;
+		double timestamp = 0;
+		String time_string;
+		String source_file;
+		String source_func;
+		int source_line = -1;
+		String error;
+		String error_descr;
+		struct StackFrame {
+			String file;
+			String function;
+			int line = -1;
+		};
+		Vector<StackFrame> callstack;
+	};
+	static const int MAX_ERROR_BUFFER = 500;
+	Vector<RuntimeError> error_buffer;
+
 	// Pending screenshot state for async capture.
 	struct PendingScreenshot {
 		bool completed = false;
@@ -174,6 +208,7 @@ private:
 	// Runtime output and screenshot callbacks.
 	void _on_screenshot_captured(int p_width, int p_height, const String &p_path, const Rect2i &p_rect);
 	void _on_debugger_output(const String &p_msg, int p_level);
+	void _on_debugger_data(const String &p_msg, const Array &p_data);
 	void _connect_debugger_signals();
 	void _disconnect_debugger_signals();
 

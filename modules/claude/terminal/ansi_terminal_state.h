@@ -88,6 +88,10 @@ private:
 	bool current_underline = false;
 	bool current_inverse = false;
 
+	// Configurable default colors (set by the view to match editor theme).
+	Color default_fg = Color(1, 1, 1);
+	Color default_bg = Color(0, 0, 0, 0);
+
 	// Parser state.
 	ParserState parser_state = STATE_GROUND;
 	Vector<int> csi_params;
@@ -148,6 +152,11 @@ public:
 
 	void set_scrollback_limit(int p_limit) { scrollback_limit = p_limit; }
 	int get_scrollback_limit() const { return scrollback_limit; }
+
+	void set_default_fg(const Color &p_color);
+	void set_default_bg(const Color &p_color);
+	Color get_default_fg() const { return default_fg; }
+	Color get_default_bg() const { return default_bg; }
 
 	AnsiTerminalState();
 };

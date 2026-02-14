@@ -63,6 +63,15 @@ private:
 	float cell_height = 0;
 	float ascent = 0;
 
+	// Theme-aware colors.
+	Color color_bg;
+	Color color_cursor;
+	Color color_cursor_text;
+	Color color_selection;
+	Color color_selection_text;
+	Color color_focus_border;
+	Color color_exited_text;
+
 	// Cursor blinking.
 	bool cursor_blink_on = true;
 	Timer *blink_timer = nullptr;
@@ -84,6 +93,7 @@ private:
 	void _recompute_grid_size();
 	void _on_blink_timer();
 	void _on_scrollbar_changed(double p_value);
+	void _update_colors();
 
 	void _draw_cell(const AnsiTerminalState::Cell &p_cell, int p_x, int p_y, bool p_is_cursor, bool p_is_selected);
 	String _get_selected_text() const;

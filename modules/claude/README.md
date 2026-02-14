@@ -4,7 +4,7 @@ This module integrates Claude AI with the Godot editor via the **Model Context P
 
 ## Features
 
-- **MCP Server**: Exposes 32 Godot editor tools as standardized MCP operations
+- **MCP Server**: Exposes 42 Godot editor tools as standardized MCP operations
 - **Scene Persistence**: Save, create, open, and instance scenes — full game development workflow
 - **Scene Manipulation**: Add, remove, and modify nodes with full undo/redo support
 - **Signal Wiring**: Connect and disconnect signals between nodes via the editor
@@ -40,7 +40,7 @@ If working in the Godot source repo, the marketplace is auto-discovered:
 claude plugin install godot-mcp@godot-plugins --scope user
 ```
 
-This installs the MCP bridge, game development skill, and all 32 tools.
+This installs the MCP bridge, game development skill, and all 42 tools.
 
 **Alternative (manual MCP config):**
 
@@ -96,6 +96,7 @@ claude
 | `godot_create_script` | Create a new GDScript file |
 | `godot_read_script` | Read script content |
 | `godot_modify_script` | Modify an existing script |
+| `godot_validate_script` | Validate a GDScript file for compilation errors/warnings |
 
 ### Project Settings
 | Tool | Description |
@@ -127,7 +128,7 @@ claude
 ### Resource
 | Tool | Description |
 |------|-------------|
-| `godot_project_files` | List project files or trigger filesystem rescan |
+| `godot_project_files` | List project files, trigger filesystem rescan, or run import diagnostics |
 
 ### 3D
 | Tool | Description |
@@ -147,9 +148,30 @@ claude
 | `godot_stop_scene` | Stop running scene |
 | `godot_get_runtime_scene_tree` | Get scene tree from running game |
 | `godot_get_runtime_output` | Get log/print output from running game |
+| `godot_get_runtime_errors` | Get structured runtime errors with source locations and call stacks |
 | `godot_capture_screenshot` | Capture screenshot from running game |
 | `godot_runtime_camera_control` | Control debug camera in running game |
 | `godot_get_runtime_camera_info` | Get camera state from running game |
+
+### Transform
+| Tool | Description |
+|------|-------------|
+| `godot_transform_nodes` | Translate, rotate, scale, or set transform on multiple nodes |
+
+### Scene Operations
+| Tool | Description |
+|------|-------------|
+| `godot_scene_operations` | Duplicate, reparent, set visibility, toggle lock, manage groups |
+
+### Editor
+| Tool | Description |
+|------|-------------|
+| `godot_get_editor_log` | Get editor Output panel messages (startup, tool scripts, editor errors) |
+| `godot_editor_screenshot` | Capture editor viewport screenshot (3D, 2D, or running game) |
+| `godot_editor_viewport_camera` | Control 3D editor viewport camera (move, orbit, look at, focus, preset views) |
+| `godot_editor_control` | Switch editor panels, set 3D display mode, toggle grid |
+| `godot_canvas_view` | Control 2D canvas editor view (pan, zoom, center, snap settings) |
+| `godot_editor_state` | Get comprehensive editor state (viewports, snap settings, scene info) |
 
 See [TOOL_REFERENCE.md](docs/TOOL_REFERENCE.md) for full parameter details, return values, and error messages.
 
@@ -234,6 +256,7 @@ modules/claude/
 │   ├── godot_mcp_tools_3d.cpp       # Navigation mesh baking tool
 │   ├── godot_mcp_tools_animation.cpp # Animation creation and inspection tools
 │   ├── godot_mcp_tools_resource.cpp # Project file listing and filesystem scan
+│   ├── godot_mcp_tools_editor.cpp   # Editor log, screenshot, viewport camera, editor control, canvas view, editor state tools
 │   └── godot_mcp_validation.cpp     # Path/type validation & type coercion
 ├── util/
 │   └── mcp_scene_serializer.*   # Scene to JSON

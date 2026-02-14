@@ -73,6 +73,16 @@ AnsiTerminalState::AnsiTerminalState() {
 	_ensure_screen_size(alt_screen);
 }
 
+void AnsiTerminalState::set_default_fg(const Color &p_color) {
+	default_fg = p_color;
+	current_fg = p_color;
+}
+
+void AnsiTerminalState::set_default_bg(const Color &p_color) {
+	default_bg = p_color;
+	current_bg = p_color;
+}
+
 int AnsiTerminalState::_cell_index(int p_row, int p_col) const {
 	return p_row * _cols + p_col;
 }
@@ -90,8 +100,8 @@ void AnsiTerminalState::_ensure_screen_size(Vector<Cell> &p_screen) {
 
 void AnsiTerminalState::_clear_cell(Cell &p_cell) {
 	p_cell.ch = ' ';
-	p_cell.fg = Color(1, 1, 1);
-	p_cell.bg = Color(0, 0, 0, 0);
+	p_cell.fg = default_fg;
+	p_cell.bg = default_bg;
 	p_cell.bold = false;
 	p_cell.dim = false;
 	p_cell.italic = false;
@@ -269,8 +279,8 @@ void AnsiTerminalState::feed(const uint8_t *p_data, int p_len) {
 					cursor_row = 0;
 					cursor_col = 0;
 					cursor_visible = true;
-					current_fg = Color(1, 1, 1);
-					current_bg = Color(0, 0, 0, 0);
+					current_fg = default_fg;
+					current_bg = default_bg;
 					current_bold = false;
 					current_dim = false;
 					current_italic = false;
@@ -763,8 +773,8 @@ void AnsiTerminalState::_execute_csi(char32_t p_final) {
 void AnsiTerminalState::_execute_sgr() {
 	if (csi_params.size() == 0 || (csi_params.size() == 1 && csi_params[0] == 0)) {
 		// Reset all attributes.
-		current_fg = Color(1, 1, 1);
-		current_bg = Color(0, 0, 0, 0);
+		current_fg = default_fg;
+		current_bg = default_bg;
 		current_bold = false;
 		current_dim = false;
 		current_italic = false;
@@ -778,8 +788,8 @@ void AnsiTerminalState::_execute_sgr() {
 
 		switch (p) {
 			case 0: {
-				current_fg = Color(1, 1, 1);
-				current_bg = Color(0, 0, 0, 0);
+				current_fg = default_fg;
+				current_bg = default_bg;
 				current_bold = false;
 				current_dim = false;
 				current_italic = false;
@@ -862,7 +872,7 @@ void AnsiTerminalState::_execute_sgr() {
 
 			case 39:
 				// Default foreground.
-				current_fg = Color(1, 1, 1);
+				current_fg = default_fg;
 				break;
 
 			// Background colors (standard 8).
@@ -908,7 +918,7 @@ void AnsiTerminalState::_execute_sgr() {
 
 			case 49:
 				// Default background.
-				current_bg = Color(0, 0, 0, 0);
+				current_bg = default_bg;
 				break;
 
 			// Bright foreground colors.

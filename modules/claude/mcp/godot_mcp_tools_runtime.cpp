@@ -31,6 +31,7 @@
 #include "godot_mcp_server.h"
 
 #include "core/crypto/crypto_core.h"
+#include "core/debugger/debugger_marshalls.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/math/math_funcs.h"
@@ -118,6 +119,43 @@ void GodotMCPServer::_on_debugger_output(const String &p_msg, int p_level) {
 #endif
 }
 
+void GodotMCPServer::_on_debugger_data(const String &p_msg, const Array &p_data) {
+#ifdef TOOLS_ENABLED
+	if (p_msg != "error") {
+		return;
+	}
+
+	DebuggerMarshalls::OutputError output_error;
+	if (!output_error.deserialize(p_data)) {
+		return;
+	}
+
+	RuntimeError err;
+	err.warning = output_error.warning;
+	err.timestamp = Time::get_singleton()->get_unix_time_from_system();
+	err.time_string = vformat("%d:%02d:%02d:%03d", output_error.hr, output_error.min, output_error.sec, output_error.msec);
+	err.source_file = output_error.source_file;
+	err.source_func = output_error.source_func;
+	err.source_line = output_error.source_line;
+	err.error = output_error.error;
+	err.error_descr = output_error.error_descr;
+
+	for (const ScriptLanguage::StackInfo &si : output_error.callstack) {
+		RuntimeError::StackFrame frame;
+		frame.file = si.file;
+		frame.function = si.func;
+		frame.line = si.line;
+		err.callstack.push_back(frame);
+	}
+
+	error_buffer.push_back(err);
+
+	while (error_buffer.size() > MAX_ERROR_BUFFER) {
+		error_buffer.remove_at(0);
+	}
+#endif
+}
+
 void GodotMCPServer::_connect_debugger_signals() {
 #ifdef TOOLS_ENABLED
 	if (debugger_connected) {
@@ -131,12 +169,19 @@ void GodotMCPServer::_connect_debugger_signals() {
 
 	ScriptEditorDebugger *debugger = debugger_node->get_current_debugger();
 	if (debugger && debugger->is_session_active()) {
-		Callable callback = callable_mp(this, &GodotMCPServer::_on_debugger_output);
-		if (!debugger->is_connected("output", callback)) {
-			debugger->connect("output", callback);
-			debugger_connected = true;
+		Callable output_cb = callable_mp(this, &GodotMCPServer::_on_debugger_output);
+		if (!debugger->is_connected("output", output_cb)) {
+			debugger->connect("output", output_cb);
 			output_buffer.clear(); // Fresh start for new session.
 		}
+
+		Callable data_cb = callable_mp(this, &GodotMCPServer::_on_debugger_data);
+		if (!debugger->is_connected("debug_data", data_cb)) {
+			debugger->connect("debug_data", data_cb);
+			error_buffer.clear(); // Fresh start for new session.
+		}
+
+		debugger_connected = true;
 	}
 #endif
 }
@@ -151,9 +196,14 @@ void GodotMCPServer::_disconnect_debugger_signals() {
 	if (debugger_node) {
 		ScriptEditorDebugger *debugger = debugger_node->get_current_debugger();
 		if (debugger) {
-			Callable callback = callable_mp(this, &GodotMCPServer::_on_debugger_output);
-			if (debugger->is_connected("output", callback)) {
-				debugger->disconnect("output", callback);
+			Callable output_cb = callable_mp(this, &GodotMCPServer::_on_debugger_output);
+			if (debugger->is_connected("output", output_cb)) {
+				debugger->disconnect("output", output_cb);
+			}
+
+			Callable data_cb = callable_mp(this, &GodotMCPServer::_on_debugger_data);
+			if (debugger->is_connected("debug_data", data_cb)) {
+				debugger->disconnect("debug_data", data_cb);
 			}
 		}
 	}
@@ -313,6 +363,62 @@ Dictionary GodotMCPServer::_tool_get_runtime_output(const Dictionary &p_args) {
 
 	return _success_result("Output retrieved",
 			Dictionary{ { "running", is_running }, { "message_count", messages.size() }, { "messages", messages } });
+#else
+	return _error_result("Editor functionality not available");
+#endif
+}
+
+Dictionary GodotMCPServer::_tool_get_runtime_errors(const Dictionary &p_args) {
+#ifdef TOOLS_ENABLED
+	bool is_running = EditorInterface::get_singleton()->is_playing_scene();
+	int limit = p_args.get("limit", 50);
+	double since = p_args.get("since_timestamp", 0.0);
+	String severity = p_args.get("severity", "all");
+	bool include_callstack = p_args.get("include_callstack", true);
+
+	Array errors;
+
+	for (int i = error_buffer.size() - 1; i >= 0 && errors.size() < limit; i--) {
+		const RuntimeError &err = error_buffer[i];
+		if (since > 0.0 && err.timestamp < since) {
+			break;
+		}
+
+		// Filter by severity.
+		if (severity == "error" && err.warning) {
+			continue;
+		}
+		if (severity == "warning" && !err.warning) {
+			continue;
+		}
+
+		Dictionary e;
+		e["severity"] = err.warning ? "warning" : "error";
+		e["timestamp"] = err.timestamp;
+		e["time"] = err.time_string;
+		e["source_file"] = err.source_file;
+		e["source_line"] = err.source_line;
+		e["source_func"] = err.source_func;
+		e["error"] = err.error;
+		e["error_description"] = err.error_descr;
+
+		if (include_callstack && !err.callstack.is_empty()) {
+			Array stack;
+			for (const RuntimeError::StackFrame &frame : err.callstack) {
+				Dictionary f;
+				f["file"] = frame.file;
+				f["function"] = frame.function;
+				f["line"] = frame.line;
+				stack.push_back(f);
+			}
+			e["callstack"] = stack;
+		}
+
+		errors.push_back(e);
+	}
+
+	return _success_result("Runtime errors retrieved",
+			Dictionary{ { "running", is_running }, { "error_count", errors.size() }, { "errors", errors } });
 #else
 	return _error_result("Editor functionality not available");
 #endif

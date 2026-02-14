@@ -209,6 +209,14 @@ Dictionary GodotMCPServer::_handle_tools_list(const Dictionary &p_params) {
 			"Modify an existing script file",
 			_make_schema(modify_script_params)));
 
+	// Script validation tool.
+	Array validate_script_params;
+	validate_script_params.push_back(Dictionary{ { "name", "path" }, { "type", "string" }, { "description", "Resource path to the script (e.g., 'res://scripts/player.gd')" }, { "required", true } });
+	tools.push_back(_define_tool(
+			"godot_validate_script",
+			"Validate a GDScript file and return compilation errors/warnings without running the game.",
+			_make_schema(validate_script_params)));
+
 	// Selection tools.
 	tools.push_back(_define_tool(
 			"godot_get_selected_nodes",
@@ -248,6 +256,17 @@ Dictionary GodotMCPServer::_handle_tools_list(const Dictionary &p_params) {
 			"godot_get_runtime_output",
 			"Get output/log messages from the running game",
 			_make_schema(get_output_params)));
+
+	// Runtime errors tool.
+	Array get_errors_params;
+	get_errors_params.push_back(Dictionary{ { "name", "limit" }, { "type", "integer" }, { "description", "Maximum number of errors to return (default 50)" }, { "required", false } });
+	get_errors_params.push_back(Dictionary{ { "name", "since_timestamp" }, { "type", "number" }, { "description", "Only return errors after this Unix timestamp" }, { "required", false } });
+	get_errors_params.push_back(Dictionary{ { "name", "severity" }, { "type", "string" }, { "description", "Filter by severity: 'all' (default), 'error', or 'warning'" }, { "required", false } });
+	get_errors_params.push_back(Dictionary{ { "name", "include_callstack" }, { "type", "boolean" }, { "description", "Include call stack frames (default: true)" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_get_runtime_errors",
+			"Get structured runtime errors/warnings from the running game with source locations and call stacks. Shows the same data as the editor's Errors tab.",
+			_make_schema(get_errors_params)));
 
 	tools.push_back(_define_tool(
 			"godot_capture_screenshot",
@@ -309,13 +328,13 @@ Dictionary GodotMCPServer::_handle_tools_list(const Dictionary &p_params) {
 
 	// Project files tool.
 	Array project_files_params;
-	project_files_params.push_back(Dictionary{ { "name", "action" }, { "type", "string" }, { "description", "Action: 'list' (browse files) or 'scan' (trigger editor filesystem rescan)" }, { "required", true } });
+	project_files_params.push_back(Dictionary{ { "name", "action" }, { "type", "string" }, { "description", "Action: 'list' (browse files), 'scan' (trigger editor filesystem rescan), or 'diagnostics' (scan for invalid imports)" }, { "required", true } });
 	project_files_params.push_back(Dictionary{ { "name", "path" }, { "type", "string" }, { "description", "Directory path (default: 'res://')" }, { "required", false } });
 	project_files_params.push_back(Dictionary{ { "name", "recursive" }, { "type", "boolean" }, { "description", "List files recursively (default: false)" }, { "required", false } });
 	project_files_params.push_back(Dictionary{ { "name", "extensions" }, { "type", "array" }, { "description", "Filter by file extensions, e.g. ['tscn', 'gd', 'tres']" }, { "required", false } });
 	tools.push_back(_define_tool(
 			"godot_project_files",
-			"List project files with resource type metadata, or trigger a filesystem rescan after external file changes.",
+			"List project files with resource type metadata, trigger a filesystem rescan after external file changes, or run import diagnostics.",
 			_make_schema(project_files_params)));
 
 	// Input map tool.
@@ -357,6 +376,102 @@ Dictionary GodotMCPServer::_handle_tools_list(const Dictionary &p_params) {
 			"godot_get_animation_info",
 			"Inspect animations on an AnimationPlayer or AnimationTree: library list, animation details, track summaries, state machine info.",
 			_make_schema(anim_info_params)));
+
+	// Editor log tool.
+	Array editor_log_params;
+	editor_log_params.push_back(Dictionary{ { "name", "limit" }, { "type", "integer" }, { "description", "Maximum number of messages to return (default 100)" }, { "required", false } });
+	editor_log_params.push_back(Dictionary{ { "name", "types" }, { "type", "array" }, { "description", "Filter by message types: 'std', 'error', 'warning', 'editor', 'std_rich'. Returns all types if empty." }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_get_editor_log",
+			"Get editor-level log messages from the Output panel (startup messages, tool script output, ERR_PRINT/WARN_PRINT from editor context).",
+			_make_schema(editor_log_params)));
+
+	// Editor screenshot tool.
+	Array editor_screenshot_params;
+	editor_screenshot_params.push_back(Dictionary{ { "name", "source" }, { "type", "string" }, { "description", "Screenshot source: '3d' (default), '2d', or 'game'" }, { "required", false } });
+	editor_screenshot_params.push_back(Dictionary{ { "name", "viewport_idx" }, { "type", "integer" }, { "description", "3D viewport index 0-3 (default 0)" }, { "required", false } });
+	editor_screenshot_params.push_back(Dictionary{ { "name", "scale" }, { "type", "number" }, { "description", "Downscale factor 0.1-1.0 (default 0.5 = half resolution)" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_editor_screenshot",
+			"Capture a screenshot from the editor viewport (3D or 2D) or the running game. Returns a base64 PNG image.",
+			_make_schema(editor_screenshot_params)));
+
+	// Editor viewport camera tool.
+	Array editor_camera_params;
+	editor_camera_params.push_back(Dictionary{ { "name", "action" }, { "type", "string" }, { "description", "Camera action: 'move', 'orbit', 'look_at', 'focus', 'set_view', or 'get_state'" }, { "required", true } });
+	editor_camera_params.push_back(Dictionary{ { "name", "viewport_idx" }, { "type", "integer" }, { "description", "3D viewport index 0-3 (default 0)" }, { "required", false } });
+	editor_camera_params.push_back(Dictionary{ { "name", "position" }, { "type", "object" }, { "description", "Camera focal point {x, y, z} (for 'move')" }, { "required", false } });
+	editor_camera_params.push_back(Dictionary{ { "name", "distance" }, { "type", "number" }, { "description", "Distance from focal point (for 'move', 'orbit')" }, { "required", false } });
+	editor_camera_params.push_back(Dictionary{ { "name", "x_rotation" }, { "type", "number" }, { "description", "Pitch in radians (for 'move', 'orbit')" }, { "required", false } });
+	editor_camera_params.push_back(Dictionary{ { "name", "y_rotation" }, { "type", "number" }, { "description", "Yaw in radians (for 'move', 'orbit')" }, { "required", false } });
+	editor_camera_params.push_back(Dictionary{ { "name", "target" }, { "type", "object" }, { "description", "Look-at target {x, y, z} (for 'look_at')" }, { "required", false } });
+	editor_camera_params.push_back(Dictionary{ { "name", "from" }, { "type", "object" }, { "description", "Camera position {x, y, z} (for 'look_at')" }, { "required", false } });
+	editor_camera_params.push_back(Dictionary{ { "name", "view" }, { "type", "string" }, { "description", "View preset: 'front', 'back', 'left', 'right', 'top', 'bottom' (for 'set_view')" }, { "required", false } });
+	editor_camera_params.push_back(Dictionary{ { "name", "orthogonal" }, { "type", "boolean" }, { "description", "Toggle orthogonal projection" }, { "required", false } });
+	editor_camera_params.push_back(Dictionary{ { "name", "fov_scale" }, { "type", "number" }, { "description", "FOV scale 0.1-2.5" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_editor_viewport_camera",
+			"Control the 3D editor viewport camera. Move, orbit, look at targets, focus on selection, or set preset views.",
+			_make_schema(editor_camera_params)));
+
+	// Editor control tool.
+	Array editor_control_params;
+	editor_control_params.push_back(Dictionary{ { "name", "action" }, { "type", "string" }, { "description", "Action: 'switch_panel', 'set_display_mode', 'toggle_grid', or 'get_state'" }, { "required", true } });
+	editor_control_params.push_back(Dictionary{ { "name", "panel" }, { "type", "string" }, { "description", "'2D', '3D', 'Script', or 'AssetLib' (for 'switch_panel')" }, { "required", false } });
+	editor_control_params.push_back(Dictionary{ { "name", "display_mode" }, { "type", "string" }, { "description", "'normal', 'wireframe', 'overdraw', 'lighting', or 'unshaded' (for 'set_display_mode')" }, { "required", false } });
+	editor_control_params.push_back(Dictionary{ { "name", "viewport_idx" }, { "type", "integer" }, { "description", "Which 3D viewport to affect (default 0)" }, { "required", false } });
+	editor_control_params.push_back(Dictionary{ { "name", "grid" }, { "type", "boolean" }, { "description", "Grid visibility (for 'toggle_grid')" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_editor_control",
+			"Control editor workspace: switch panels, set 3D display mode, toggle grid visibility.",
+			_make_schema(editor_control_params)));
+
+	// Canvas view tool.
+	Array canvas_view_params;
+	canvas_view_params.push_back(Dictionary{ { "name", "action" }, { "type", "string" }, { "description", "Action: 'get_state', 'center_at', 'zoom', 'pan', 'focus', or 'set_snap'" }, { "required", true } });
+	canvas_view_params.push_back(Dictionary{ { "name", "position" }, { "type", "object" }, { "description", "World position {x, y} (for 'center_at', 'pan')" }, { "required", false } });
+	canvas_view_params.push_back(Dictionary{ { "name", "zoom" }, { "type", "number" }, { "description", "Zoom level (for 'zoom')" }, { "required", false } });
+	canvas_view_params.push_back(Dictionary{ { "name", "grid_snap" }, { "type", "boolean" }, { "description", "Enable grid snapping (for 'set_snap')" }, { "required", false } });
+	canvas_view_params.push_back(Dictionary{ { "name", "smart_snap" }, { "type", "boolean" }, { "description", "Enable smart snapping (for 'set_snap')" }, { "required", false } });
+	canvas_view_params.push_back(Dictionary{ { "name", "grid_step" }, { "type", "object" }, { "description", "Grid step size {x, y} (for 'set_snap')" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_canvas_view",
+			"Control the 2D canvas editor: pan, zoom, center on points, focus selection, configure snapping.",
+			_make_schema(canvas_view_params)));
+
+	// Transform nodes tool.
+	Array transform_nodes_params;
+	transform_nodes_params.push_back(Dictionary{ { "name", "action" }, { "type", "string" }, { "description", "Action: 'translate', 'rotate', 'scale', or 'set_transform'" }, { "required", true } });
+	transform_nodes_params.push_back(Dictionary{ { "name", "node_paths" }, { "type", "array" }, { "description", "Node paths to transform" }, { "required", true } });
+	transform_nodes_params.push_back(Dictionary{ { "name", "value" }, { "type", "object" }, { "description", "Delta vector {x, y, z} for translate/rotate/scale" }, { "required", false } });
+	transform_nodes_params.push_back(Dictionary{ { "name", "local" }, { "type", "boolean" }, { "description", "Apply in local space (default false = global)" }, { "required", false } });
+	transform_nodes_params.push_back(Dictionary{ { "name", "transform" }, { "type", "object" }, { "description", "Full transform for 'set_transform': {origin: {x,y,z}, rotation: {x,y,z}, scale: {x,y,z}}" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_transform_nodes",
+			"Apply relative transforms to nodes (translate, rotate, scale by delta). Works on both Node3D and Node2D with undo/redo.",
+			_make_schema(transform_nodes_params)));
+
+	// Scene operations tool.
+	Array scene_ops_params;
+	scene_ops_params.push_back(Dictionary{ { "name", "action" }, { "type", "string" }, { "description", "Action: 'duplicate', 'reparent', 'set_visible', 'toggle_lock', or 'group'" }, { "required", true } });
+	scene_ops_params.push_back(Dictionary{ { "name", "node_paths" }, { "type", "array" }, { "description", "Target node paths" }, { "required", true } });
+	scene_ops_params.push_back(Dictionary{ { "name", "new_parent" }, { "type", "string" }, { "description", "New parent path (for 'reparent')" }, { "required", false } });
+	scene_ops_params.push_back(Dictionary{ { "name", "visible" }, { "type", "boolean" }, { "description", "Visibility state (for 'set_visible')" }, { "required", false } });
+	scene_ops_params.push_back(Dictionary{ { "name", "group_name" }, { "type", "string" }, { "description", "Group name (for 'group' — toggles membership)" }, { "required", false } });
+	scene_ops_params.push_back(Dictionary{ { "name", "offset" }, { "type", "object" }, { "description", "Position offset {x,y,z} for duplicated nodes" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_scene_operations",
+			"Hierarchy operations: duplicate nodes, reparent, set visibility, toggle editor lock, manage groups. All with undo/redo.",
+			_make_schema(scene_ops_params)));
+
+	// Editor state tool.
+	Array editor_state_params;
+	editor_state_params.push_back(Dictionary{ { "name", "include_3d" }, { "type", "boolean" }, { "description", "Include 3D viewport state (default true)" }, { "required", false } });
+	editor_state_params.push_back(Dictionary{ { "name", "include_2d" }, { "type", "boolean" }, { "description", "Include 2D canvas state (default true)" }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_editor_state",
+			"Get comprehensive editor state in one call: viewport cameras, snap settings, scene info, selected nodes.",
+			_make_schema(editor_state_params)));
 
 	Dictionary result;
 	result["tools"] = tools;

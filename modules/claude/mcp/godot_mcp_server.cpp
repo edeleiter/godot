@@ -94,6 +94,7 @@ void GodotMCPServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_detach_script_from_node", "node_path"), &GodotMCPServer::_detach_script_from_node);
 	ClassDB::bind_method(D_METHOD("_on_screenshot_captured", "width", "height", "path", "rect"), &GodotMCPServer::_on_screenshot_captured);
 	ClassDB::bind_method(D_METHOD("_on_debugger_output", "msg", "level"), &GodotMCPServer::_on_debugger_output);
+	ClassDB::bind_method(D_METHOD("_on_debugger_data", "msg", "data"), &GodotMCPServer::_on_debugger_data);
 
 	ADD_SIGNAL(MethodInfo("tool_called", PropertyInfo(Variant::STRING, "tool_name"), PropertyInfo(Variant::DICTIONARY, "args")));
 	ADD_SIGNAL(MethodInfo("client_connected", PropertyInfo(Variant::INT, "client_id")));
@@ -119,6 +120,7 @@ GodotMCPServer::GodotMCPServer() {
 	tool_handlers["godot_create_script"] = &GodotMCPServer::_tool_create_script;
 	tool_handlers["godot_read_script"] = &GodotMCPServer::_tool_read_script;
 	tool_handlers["godot_modify_script"] = &GodotMCPServer::_tool_modify_script;
+	tool_handlers["godot_validate_script"] = &GodotMCPServer::_tool_validate_script;
 
 	// Selection tools.
 	tool_handlers["godot_get_selected_nodes"] = &GodotMCPServer::_tool_get_selected_nodes;
@@ -154,9 +156,22 @@ GodotMCPServer::GodotMCPServer() {
 	tool_handlers["godot_stop_scene"] = &GodotMCPServer::_tool_stop_scene;
 	tool_handlers["godot_get_runtime_scene_tree"] = &GodotMCPServer::_tool_get_runtime_scene_tree;
 	tool_handlers["godot_get_runtime_output"] = &GodotMCPServer::_tool_get_runtime_output;
+	tool_handlers["godot_get_runtime_errors"] = &GodotMCPServer::_tool_get_runtime_errors;
 	tool_handlers["godot_capture_screenshot"] = &GodotMCPServer::_tool_capture_screenshot;
 	tool_handlers["godot_runtime_camera_control"] = &GodotMCPServer::_tool_runtime_camera_control;
 	tool_handlers["godot_get_runtime_camera_info"] = &GodotMCPServer::_tool_get_runtime_camera_info;
+
+	// Editor tools.
+	tool_handlers["godot_get_editor_log"] = &GodotMCPServer::_tool_get_editor_log;
+	tool_handlers["godot_editor_screenshot"] = &GodotMCPServer::_tool_editor_screenshot;
+	tool_handlers["godot_editor_viewport_camera"] = &GodotMCPServer::_tool_editor_viewport_camera;
+	tool_handlers["godot_editor_control"] = &GodotMCPServer::_tool_editor_control;
+	tool_handlers["godot_canvas_view"] = &GodotMCPServer::_tool_canvas_view;
+	tool_handlers["godot_editor_state"] = &GodotMCPServer::_tool_editor_state;
+
+	// Transform and scene operation tools.
+	tool_handlers["godot_transform_nodes"] = &GodotMCPServer::_tool_transform_nodes;
+	tool_handlers["godot_scene_operations"] = &GodotMCPServer::_tool_scene_operations;
 }
 
 GodotMCPServer::~GodotMCPServer() {

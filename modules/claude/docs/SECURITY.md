@@ -208,3 +208,13 @@ Before deployment, verify:
 | `godot_capture_screenshot` | Low | Read-only, requires active game |
 | `godot_runtime_camera_control` | Low | Camera override only, requires active game |
 | `godot_get_runtime_camera_info` | Low | Read-only, requires active game |
+| `godot_validate_script` | Low | Read-only, path validation |
+| `godot_get_runtime_errors` | Low | Read-only, requires active game |
+| `godot_get_editor_log` | Low | Read-only |
+| `godot_editor_screenshot` | Low | Read-only, captures viewport image |
+| `godot_editor_viewport_camera` | Low | Editor camera only, no scene mutation |
+| `godot_editor_control` | Low | UI-only changes (panel switching, display mode) |
+| `godot_canvas_view` | Low | Editor view only, no scene mutation |
+| `godot_editor_state` | Low | Read-only |
+| `godot_transform_nodes` | Medium | Undo/redo, modifies node transforms |
+| `godot_scene_operations` | Medium | Undo/redo, modifies scene hierarchy |
