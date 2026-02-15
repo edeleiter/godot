@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ClaudeEditorPlugin" inherits="EditorPlugin" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Editor plugin for Claude Code integration.
+	</brief_description>
+	<description>
+		Registers the Claude MCP dock and manages the MCP server lifecycle within the Godot editor. This plugin is automatically loaded when the editor starts.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_mcp_server">
+			<return type="GodotMCPServer" />
+			<description>
+				Returns the MCP server instance managed by this plugin.
+			</description>
+		</method>
+	</methods>
+</class>

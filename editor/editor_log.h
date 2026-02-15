@@ -187,6 +187,12 @@ public:
 
 	void clear();
 
+	// Public accessors for MCP diagnostics.
+	int get_message_count() const { return messages.size(); }
+	String get_message_text(int p_idx) const { ERR_FAIL_INDEX_V(p_idx, messages.size(), String()); return messages[p_idx].text; }
+	MessageType get_message_type(int p_idx) const { ERR_FAIL_INDEX_V(p_idx, messages.size(), MSG_TYPE_STD); return messages[p_idx].type; }
+	int get_message_repeat_count(int p_idx) const { ERR_FAIL_INDEX_V(p_idx, messages.size(), 0); return messages[p_idx].count; }
+
 	EditorLog();
 	~EditorLog();
 };

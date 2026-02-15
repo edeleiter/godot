@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "godot": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/claude_mcp_bridge.py", "--port", "6009"]
+    }
+  }
+}

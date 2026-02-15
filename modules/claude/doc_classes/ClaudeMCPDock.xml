@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ClaudeMCPDock" inherits="VBoxContainer" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Editor dock for Claude MCP server status and configuration.
+	</brief_description>
+	<description>
+		Provides a UI panel in the Godot editor for monitoring the MCP server status, viewing tool call logs, and copying configuration for Claude Code integration.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="set_mcp_server">
+			<return type="void" />
+			<param index="0" name="server" type="GodotMCPServer" />
+			<description>
+				Sets the MCP server instance to monitor.
+			</description>
+		</method>
+		<method name="get_mcp_server">
+			<return type="GodotMCPServer" />
+			<description>
+				Returns the current MCP server instance.
+			</description>
+		</method>
+	</methods>
+</class>

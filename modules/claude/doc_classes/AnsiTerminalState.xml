@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="AnsiTerminalState" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		ANSI terminal escape sequence parser and state machine.
+	</brief_description>
+	<description>
+		Parses ANSI/VT escape sequences from a byte stream, maintaining a virtual terminal screen buffer with cursor position, text attributes, and scrollback. Used internally by the Claude terminal dock to render terminal output.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="feed_bytes">
+			<return type="void" />
+			<param index="0" name="data" type="PackedByteArray" />
+			<description>
+				Feeds raw bytes into the terminal parser. Processes ANSI escape sequences and updates the screen buffer.
+			</description>
+		</method>
+		<method name="resize">
+			<return type="void" />
+			<param index="0" name="cols" type="int" />
+			<param index="1" name="rows" type="int" />
+			<description>
+				Resizes the terminal to the given dimensions. Existing content is reflowed.
+			</description>
+		</method>
+		<method name="get_cols" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the terminal width in columns.
+			</description>
+		</method>
+		<method name="get_rows" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the terminal height in rows.
+			</description>
+		</method>
+		<method name="get_cursor_pos" qualifiers="const">
+			<return type="Vector2i" />
+			<description>
+				Returns the current cursor position as [code](column, row)[/code].
+			</description>
+		</method>
+		<method name="is_cursor_visible" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the cursor is currently visible.
+			</description>
+		</method>
+		<method name="is_dirty" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the screen buffer has changed since the last [method clear_dirty] call.
+			</description>
+		</method>
+		<method name="clear_dirty">
+			<return type="void" />
+			<description>
+				Clears the dirty flag. Call after rendering the current frame.
+			</description>
+		</method>
+		<method name="is_using_alt_screen" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the alternate screen buffer is active (used by programs like vim).
+			</description>
+		</method>
+		<method name="get_scrollback_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of lines stored in the scrollback buffer.
+			</description>
+		</method>
+		<method name="set_scrollback_limit">
+			<return type="void" />
+			<param index="0" name="limit" type="int" />
+			<description>
+				Sets the maximum number of scrollback lines retained.
+			</description>
+		</method>
+		<method name="get_scrollback_limit" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the scrollback line limit.
+			</description>
+		</method>
+	</methods>
+</class>

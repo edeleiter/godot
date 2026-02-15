@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Skill(superpowers:systematic-debugging)",
+      "Skill(superpowers:systematic-debugging:*)",
+      "mcp__godot__godot_run_scene",
+      "mcp__godot__godot_set_property",
+      "mcp__godot__godot_create_script",
+      "mcp__godot__godot_get_scene_tree",
+      "mcp__godot__godot_get_property",
+      "mcp__godot__godot_get_runtime_scene_tree",
+      "mcp__godot__godot_get_runtime_output",
+      "mcp__godot__godot_capture_screenshot",
+      "mcp__godot__godot_read_script",
+      "mcp__godot__godot_stop_scene",
+      "mcp__godot__godot_get_runtime_camera_info",
+      "mcp__godot__godot_runtime_camera_control",
+      "mcp__godot__godot_get_selected_nodes",
+      "mcp__godot__godot_add_node",
+      "mcp__godot__godot_select_nodes",
+      "mcp__godot__godot_remove_node",
+      "WebFetch(domain:www.cgchannel.com)"
+    ]
+  }
+}

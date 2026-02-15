@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "godot-plugins": {
+      "source": {
+        "source": "directory",
+        "path": "./modules/claude"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "godot-mcp@godot-plugins": true
+  }
+}
