@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "godot_mcp_server.h"
+#include "godot_mcp_type_helpers.h"
 
 #include "core/crypto/crypto_core.h"
 #include "core/math/math_funcs.h"
@@ -45,29 +46,6 @@
 #include "scene/main/canvas_item.h"
 #include "servers/display/display_server.h"
 #endif
-
-// Vector conversion helpers (local to this translation unit).
-
-static Vector3 _dict_to_vec3(const Dictionary &p_dict) {
-	return Vector3(
-			p_dict.get("x", 0.0),
-			p_dict.get("y", 0.0),
-			p_dict.get("z", 0.0));
-}
-
-static Vector2 _dict_to_vec2(const Dictionary &p_dict) {
-	return Vector2(
-			p_dict.get("x", 0.0),
-			p_dict.get("y", 0.0));
-}
-
-static Dictionary _vec3_to_dict(const Vector3 &p_v) {
-	return Dictionary{ { "x", p_v.x }, { "y", p_v.y }, { "z", p_v.z } };
-}
-
-static Dictionary _vec2_to_dict(const Vector2 &p_v) {
-	return Dictionary{ { "x", p_v.x }, { "y", p_v.y } };
-}
 
 #ifdef TOOLS_ENABLED
 // Display mode constants matching Node3DEditorViewport's private enum.
@@ -289,7 +267,7 @@ Dictionary GodotMCPServer::_tool_editor_viewport_camera(const Dictionary &p_args
 	if (action == "move") {
 		Dictionary state;
 		if (p_args.has("position")) {
-			state["position"] = _dict_to_vec3(p_args["position"]);
+			state["position"] = mcp_dict_to_vector3(p_args["position"]);
 		}
 		if (p_args.has("distance")) {
 			state["distance"] = (float)p_args["distance"];
@@ -336,8 +314,8 @@ Dictionary GodotMCPServer::_tool_editor_viewport_camera(const Dictionary &p_args
 			return _error_result("'look_at' action requires 'target' parameter");
 		}
 
-		Vector3 target = _dict_to_vec3(p_args["target"]);
-		Vector3 from_pos = _dict_to_vec3(p_args.get("from", Dictionary()));
+		Vector3 target = mcp_dict_to_vector3(p_args["target"]);
+		Vector3 from_pos = mcp_dict_to_vector3(p_args.get("from", Dictionary()));
 
 		Vector3 dir = from_pos - target;
 		float distance = dir.length();
@@ -358,8 +336,8 @@ Dictionary GodotMCPServer::_tool_editor_viewport_camera(const Dictionary &p_args
 		viewport->set_state(state);
 
 		return _success_result("Viewport camera looking at target",
-				Dictionary{ { "position", _vec3_to_dict(target) },
-						{ "from", _vec3_to_dict(from_pos) },
+				Dictionary{ { "position", mcp_vector3_to_dict(target) },
+						{ "from", mcp_vector3_to_dict(from_pos) },
 						{ "distance", distance },
 						{ "x_rotation", x_rot },
 						{ "y_rotation", y_rot } });
@@ -401,7 +379,7 @@ Dictionary GodotMCPServer::_tool_editor_viewport_camera(const Dictionary &p_args
 		viewport->set_state(state);
 
 		return _success_result("Viewport camera focused on selection",
-				Dictionary{ { "center", _vec3_to_dict(center) },
+				Dictionary{ { "center", mcp_vector3_to_dict(center) },
 						{ "distance", (float)state["distance"] },
 						{ "node_count", count } });
 	}
@@ -564,11 +542,11 @@ Dictionary GodotMCPServer::_tool_canvas_view(const Dictionary &p_args) {
 
 		Dictionary clean;
 		clean["zoom"] = state.get("zoom", 1.0);
-		clean["offset"] = _vec2_to_dict(state.get("ofs", Vector2()));
+		clean["offset"] = mcp_vector2_to_dict(state.get("ofs", Vector2()));
 		clean["grid_snap"] = state.get("grid_snap_active", false);
 		clean["smart_snap"] = state.get("smart_snap_active", false);
-		clean["grid_step"] = _vec2_to_dict(state.get("grid_step", Vector2(8, 8)));
-		clean["grid_offset"] = _vec2_to_dict(state.get("grid_offset", Vector2()));
+		clean["grid_step"] = mcp_vector2_to_dict(state.get("grid_step", Vector2(8, 8)));
+		clean["grid_offset"] = mcp_vector2_to_dict(state.get("grid_offset", Vector2()));
 		clean["show_grid"] = (int)state.get("grid_visibility", 0) > 0;
 		clean["show_rulers"] = state.get("show_rulers", true);
 		clean["show_guides"] = state.get("show_guides", true);
@@ -587,7 +565,7 @@ Dictionary GodotMCPServer::_tool_canvas_view(const Dictionary &p_args) {
 			return _error_result("'center_at' requires 'position' parameter {x, y}");
 		}
 
-		Vector2 target = _dict_to_vec2(p_args["position"]);
+		Vector2 target = mcp_dict_to_vector2(p_args["position"]);
 
 		Dictionary state = canvas->get_state();
 		float zoom = state.get("zoom", 1.0);
@@ -599,7 +577,7 @@ Dictionary GodotMCPServer::_tool_canvas_view(const Dictionary &p_args) {
 		canvas->set_state(new_state);
 
 		return _success_result("Canvas centered at " + String(target),
-				Dictionary{ { "position", _vec2_to_dict(target) }, { "zoom", zoom } });
+				Dictionary{ { "position", mcp_vector2_to_dict(target) }, { "zoom", zoom } });
 	}
 
 	// --- zoom ---
@@ -623,7 +601,7 @@ Dictionary GodotMCPServer::_tool_canvas_view(const Dictionary &p_args) {
 			return _error_result("'pan' action requires 'position' parameter {x, y} (offset delta)");
 		}
 
-		Vector2 delta = _dict_to_vec2(p_args["position"]);
+		Vector2 delta = mcp_dict_to_vector2(p_args["position"]);
 		Dictionary state = canvas->get_state();
 		Vector2 current_ofs = state.get("ofs", Vector2());
 
@@ -632,7 +610,7 @@ Dictionary GodotMCPServer::_tool_canvas_view(const Dictionary &p_args) {
 		canvas->set_state(new_state);
 
 		return _success_result("Canvas panned",
-				Dictionary{ { "offset", _vec2_to_dict(current_ofs + delta) } });
+				Dictionary{ { "offset", mcp_vector2_to_dict(current_ofs + delta) } });
 	}
 
 	// --- focus ---
@@ -664,7 +642,7 @@ Dictionary GodotMCPServer::_tool_canvas_view(const Dictionary &p_args) {
 		canvas->set_state(new_state);
 
 		return _success_result("Canvas focused on selection",
-				Dictionary{ { "center", _vec2_to_dict(center) }, { "node_count", count } });
+				Dictionary{ { "center", mcp_vector2_to_dict(center) }, { "node_count", count } });
 	}
 
 	// --- set_snap ---
@@ -677,7 +655,7 @@ Dictionary GodotMCPServer::_tool_canvas_view(const Dictionary &p_args) {
 			new_state["smart_snap_active"] = (bool)p_args["smart_snap"];
 		}
 		if (p_args.has("grid_step")) {
-			new_state["grid_step"] = _dict_to_vec2(p_args["grid_step"]);
+			new_state["grid_step"] = mcp_dict_to_vector2(p_args["grid_step"]);
 		}
 
 		canvas->set_state(new_state);
@@ -734,7 +712,7 @@ Dictionary GodotMCPServer::_tool_editor_state(const Dictionary &p_args) {
 				Dictionary vp_state = viewport->get_state();
 
 				Dictionary vp3d;
-				vp3d["position"] = _vec3_to_dict(vp_state.get("position", Vector3()));
+				vp3d["position"] = mcp_vector3_to_dict(vp_state.get("position", Vector3()));
 				vp3d["x_rotation"] = vp_state.get("x_rotation", 0.0);
 				vp3d["y_rotation"] = vp_state.get("y_rotation", 0.0);
 				vp3d["distance"] = vp_state.get("distance", 4.0);
@@ -756,7 +734,7 @@ Dictionary GodotMCPServer::_tool_editor_state(const Dictionary &p_args) {
 
 			Dictionary vp2d;
 			vp2d["zoom"] = canvas_state.get("zoom", 1.0);
-			vp2d["offset"] = _vec2_to_dict(canvas_state.get("ofs", Vector2()));
+			vp2d["offset"] = mcp_vector2_to_dict(canvas_state.get("ofs", Vector2()));
 			vp2d["grid_snap"] = canvas_state.get("grid_snap_active", false);
 			vp2d["smart_snap"] = canvas_state.get("smart_snap_active", false);
 

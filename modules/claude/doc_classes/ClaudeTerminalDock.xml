@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ClaudeTerminalDock" inherits="EditorDock" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Editor dock providing an integrated terminal emulator.
+	</brief_description>
+	<description>
+		Provides an embedded terminal emulator inside the Godot editor, using ConPTY on Windows. Supports ANSI escape sequences, configurable fonts and colors, and clipboard integration.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

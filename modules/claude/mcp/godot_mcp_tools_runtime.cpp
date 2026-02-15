@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "godot_mcp_server.h"
+#include "godot_mcp_type_helpers.h"
 
 #include "core/crypto/crypto_core.h"
 #include "core/debugger/debugger_marshalls.h"
@@ -49,29 +50,6 @@
 #include "editor/run/game_view_plugin.h"
 #include "scene/debugger/scene_debugger_object.h"
 #endif
-
-// Dictionary <-> Vector conversion helpers.
-
-static Vector3 _dict_to_vector3(const Dictionary &p_dict) {
-	return Vector3(
-			p_dict.get("x", 0.0),
-			p_dict.get("y", 0.0),
-			p_dict.get("z", 0.0));
-}
-
-static Vector2 _dict_to_vector2(const Dictionary &p_dict) {
-	return Vector2(
-			p_dict.get("x", 0.0),
-			p_dict.get("y", 0.0));
-}
-
-static Dictionary _vector3_to_dict(const Vector3 &p_vec) {
-	return Dictionary{ { "x", p_vec.x }, { "y", p_vec.y }, { "z", p_vec.z } };
-}
-
-static Dictionary _vector2_to_dict(const Vector2 &p_vec) {
-	return Dictionary{ { "x", p_vec.x }, { "y", p_vec.y } };
-}
 
 #ifdef TOOLS_ENABLED
 // Send a 3D camera override transform via the debugger.
@@ -521,8 +499,8 @@ Dictionary GodotMCPServer::_camera_control_3d(const String &p_action, const Dict
 		debugger->send_message("scene:runtime_node_select_reset_camera_3d", msg);
 		return _success_result("3D camera reset to default");
 	} else if (p_action == "move") {
-		Vector3 position = _dict_to_vector3(p_args.get("position", Dictionary()));
-		Vector3 rotation_deg = _dict_to_vector3(p_args.get("rotation_degrees", Dictionary()));
+		Vector3 position = mcp_dict_to_vector3(p_args.get("position", Dictionary()));
+		Vector3 rotation_deg = mcp_dict_to_vector3(p_args.get("rotation_degrees", Dictionary()));
 		Vector3 rotation_rad(
 				Math::deg_to_rad(rotation_deg.x),
 				Math::deg_to_rad(rotation_deg.y),
@@ -536,8 +514,8 @@ Dictionary GodotMCPServer::_camera_control_3d(const String &p_action, const Dict
 		_send_camera_3d_transform(debugger, transform, fov);
 
 		return _success_result("3D camera moved",
-				Dictionary{ { "position", _vector3_to_dict(position) },
-						{ "rotation_degrees", _vector3_to_dict(rotation_deg) },
+				Dictionary{ { "position", mcp_vector3_to_dict(position) },
+						{ "rotation_degrees", mcp_vector3_to_dict(rotation_deg) },
 						{ "fov", fov } });
 	} else if (p_action == "look_at") {
 		Dictionary target_dict = p_args.get("target", Dictionary());
@@ -545,8 +523,8 @@ Dictionary GodotMCPServer::_camera_control_3d(const String &p_action, const Dict
 			return _error_result("'look_at' action requires 'target' parameter");
 		}
 
-		Vector3 from_pos = _dict_to_vector3(p_args.get("from", Dictionary()));
-		Vector3 target = _dict_to_vector3(target_dict);
+		Vector3 from_pos = mcp_dict_to_vector3(p_args.get("from", Dictionary()));
+		Vector3 target = mcp_dict_to_vector3(target_dict);
 
 		Transform3D transform;
 		transform.origin = from_pos;
@@ -564,9 +542,9 @@ Dictionary GodotMCPServer::_camera_control_3d(const String &p_action, const Dict
 				Math::rad_to_deg(rotation_rad.z));
 
 		return _success_result("3D camera looking at target",
-				Dictionary{ { "position", _vector3_to_dict(from_pos) },
-						{ "target", _vector3_to_dict(target) },
-						{ "rotation_degrees", _vector3_to_dict(rotation_deg) },
+				Dictionary{ { "position", mcp_vector3_to_dict(from_pos) },
+						{ "target", mcp_vector3_to_dict(target) },
+						{ "rotation_degrees", mcp_vector3_to_dict(rotation_deg) },
 						{ "fov", fov } });
 	}
 
@@ -597,7 +575,7 @@ Dictionary GodotMCPServer::_camera_control_2d(const String &p_action, const Dict
 		debugger->send_message("scene:transform_camera_2d", msg);
 		return _success_result("2D camera reset to default");
 	} else if (p_action == "move") {
-		Vector2 offset = _dict_to_vector2(p_args.get("position", Dictionary()));
+		Vector2 offset = mcp_dict_to_vector2(p_args.get("position", Dictionary()));
 		double zoom = p_args.get("zoom", 1.0);
 
 		// The scene debugger applies affine_inverse to the transform, so we
@@ -611,7 +589,7 @@ Dictionary GodotMCPServer::_camera_control_2d(const String &p_action, const Dict
 		debugger->send_message("scene:transform_camera_2d", msg);
 
 		return _success_result("2D camera moved",
-				Dictionary{ { "offset", _vector2_to_dict(offset) },
+				Dictionary{ { "offset", mcp_vector2_to_dict(offset) },
 						{ "zoom", zoom } });
 	}
 

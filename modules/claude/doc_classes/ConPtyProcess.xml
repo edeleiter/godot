@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ConPtyProcess" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Windows ConPTY process wrapper for terminal emulation.
+	</brief_description>
+	<description>
+		Manages a pseudo-console (ConPTY) child process on Windows, providing read/write access to the process's terminal I/O. Used internally by the Claude terminal dock.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

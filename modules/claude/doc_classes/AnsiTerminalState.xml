@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="AnsiTerminalState" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		ANSI terminal escape sequence parser and state machine.
+	</brief_description>
+	<description>
+		Parses ANSI/VT escape sequences from a byte stream, maintaining a virtual terminal screen buffer with cursor position, text attributes, and scrollback. Used internally by the Claude terminal dock to render terminal output.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "godot_mcp_server.h"
+#include "godot_mcp_type_helpers.h"
 
 #include "../util/mcp_scene_serializer.h"
 #include "core/io/resource_loader.h"
@@ -801,15 +802,6 @@ Dictionary GodotMCPServer::_tool_set_properties_batch(const Dictionary &p_args) 
 
 // --- Transform Nodes Tool ---
 
-// Vector helpers (local to this TU, same as in runtime/editor tools).
-static Vector3 _scene_dict_to_vec3(const Dictionary &p_dict) {
-	return Vector3(p_dict.get("x", 0.0), p_dict.get("y", 0.0), p_dict.get("z", 0.0));
-}
-
-static Vector2 _scene_dict_to_vec2(const Dictionary &p_dict) {
-	return Vector2(p_dict.get("x", 0.0), p_dict.get("y", 0.0));
-}
-
 Dictionary GodotMCPServer::_tool_transform_nodes(const Dictionary &p_args) {
 #ifdef TOOLS_ENABLED
 	String action = p_args.get("action", "");
@@ -853,7 +845,7 @@ Dictionary GodotMCPServer::_tool_transform_nodes(const Dictionary &p_args) {
 			Node3D *n3d = Object::cast_to<Node3D>(node);
 			Node2D *n2d = Object::cast_to<Node2D>(node);
 			if (n3d) {
-				Vector3 delta = _scene_dict_to_vec3(val);
+				Vector3 delta = mcp_dict_to_vector3(val);
 				if (local) {
 					ur->add_do_method(n3d, "set_position", n3d->get_position() + delta);
 					ur->add_undo_method(n3d, "set_position", n3d->get_position());
@@ -862,7 +854,7 @@ Dictionary GodotMCPServer::_tool_transform_nodes(const Dictionary &p_args) {
 					ur->add_undo_method(n3d, "set_global_position", n3d->get_global_position());
 				}
 			} else if (n2d) {
-				Vector2 delta = _scene_dict_to_vec2(val);
+				Vector2 delta = mcp_dict_to_vector2(val);
 				if (local) {
 					ur->add_do_method(n2d, "set_position", n2d->get_position() + delta);
 					ur->add_undo_method(n2d, "set_position", n2d->get_position());
@@ -890,7 +882,7 @@ Dictionary GodotMCPServer::_tool_transform_nodes(const Dictionary &p_args) {
 			Node3D *n3d = Object::cast_to<Node3D>(node);
 			Node2D *n2d = Object::cast_to<Node2D>(node);
 			if (n3d) {
-				Vector3 delta = _scene_dict_to_vec3(val);
+				Vector3 delta = mcp_dict_to_vector3(val);
 				ur->add_do_method(n3d, "set_rotation", n3d->get_rotation() + delta);
 				ur->add_undo_method(n3d, "set_rotation", n3d->get_rotation());
 			} else if (n2d) {
@@ -946,11 +938,11 @@ Dictionary GodotMCPServer::_tool_transform_nodes(const Dictionary &p_args) {
 			Node2D *n2d = Object::cast_to<Node2D>(node);
 			if (n3d) {
 				if (xform.has("origin")) {
-					ur->add_do_method(n3d, "set_position", _scene_dict_to_vec3(xform["origin"]));
+					ur->add_do_method(n3d, "set_position", mcp_dict_to_vector3(xform["origin"]));
 					ur->add_undo_method(n3d, "set_position", n3d->get_position());
 				}
 				if (xform.has("rotation")) {
-					ur->add_do_method(n3d, "set_rotation", _scene_dict_to_vec3(xform["rotation"]));
+					ur->add_do_method(n3d, "set_rotation", mcp_dict_to_vector3(xform["rotation"]));
 					ur->add_undo_method(n3d, "set_rotation", n3d->get_rotation());
 				}
 				if (xform.has("scale")) {
@@ -960,7 +952,7 @@ Dictionary GodotMCPServer::_tool_transform_nodes(const Dictionary &p_args) {
 				}
 			} else if (n2d) {
 				if (xform.has("origin")) {
-					ur->add_do_method(n2d, "set_position", _scene_dict_to_vec2(xform["origin"]));
+					ur->add_do_method(n2d, "set_position", mcp_dict_to_vector2(xform["origin"]));
 					ur->add_undo_method(n2d, "set_position", n2d->get_position());
 				}
 				if (xform.has("rotation")) {
@@ -1067,9 +1059,9 @@ Dictionary GodotMCPServer::_tool_scene_operations(const Dictionary &p_args) {
 					Node3D *n3d = Object::cast_to<Node3D>(dup);
 					Node2D *n2d = Object::cast_to<Node2D>(dup);
 					if (n3d) {
-						n3d->set_position(n3d->get_position() + _scene_dict_to_vec3(offset_dict));
+						n3d->set_position(n3d->get_position() + mcp_dict_to_vector3(offset_dict));
 					} else if (n2d) {
-						n2d->set_position(n2d->get_position() + _scene_dict_to_vec2(offset_dict));
+						n2d->set_position(n2d->get_position() + mcp_dict_to_vector2(offset_dict));
 					}
 				}
 			}
