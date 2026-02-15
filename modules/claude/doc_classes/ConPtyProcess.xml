@@ -8,4 +8,60 @@
 	</description>
 	<tutorials>
 	</tutorials>
+	<methods>
+		<method name="start">
+			<return type="int" enum="Error" />
+			<param index="0" name="command" type="String" />
+			<param index="1" name="cols" type="int" default="80" />
+			<param index="2" name="rows" type="int" default="24" />
+			<description>
+				Starts a new pseudo-console process with the given command and terminal size. Returns [constant OK] on success.
+			</description>
+		</method>
+		<method name="stop">
+			<return type="void" />
+			<description>
+				Stops the child process and cleans up resources.
+			</description>
+		</method>
+		<method name="is_running" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the child process is still running.
+			</description>
+		</method>
+		<method name="write_input">
+			<return type="void" />
+			<param index="0" name="data" type="PackedByteArray" />
+			<description>
+				Writes bytes to the child process's stdin.
+			</description>
+		</method>
+		<method name="drain_output">
+			<return type="PackedByteArray" />
+			<description>
+				Returns and clears all pending output from the child process.
+			</description>
+		</method>
+		<method name="resize">
+			<return type="int" enum="Error" />
+			<param index="0" name="cols" type="int" />
+			<param index="1" name="rows" type="int" />
+			<description>
+				Resizes the pseudo-console. Returns [constant OK] on success.
+			</description>
+		</method>
+		<method name="get_cols" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the terminal width in columns.
+			</description>
+		</method>
+		<method name="get_rows" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the terminal height in rows.
+			</description>
+		</method>
+	</methods>
 </class>

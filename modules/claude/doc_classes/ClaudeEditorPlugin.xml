@@ -8,4 +8,12 @@
 	</description>
 	<tutorials>
 	</tutorials>
+	<methods>
+		<method name="get_mcp_server">
+			<return type="GodotMCPServer" />
+			<description>
+				Returns the MCP server instance managed by this plugin.
+			</description>
+		</method>
+	</methods>
 </class>

@@ -16,6 +16,34 @@
 				Serializes the scene tree starting from [param root] to a dictionary.
 			</description>
 		</method>
+		<method name="serialize_selection">
+			<return type="Dictionary" />
+			<param index="0" name="nodes" type="Array" />
+			<description>
+				Serializes an array of selected nodes to a dictionary.
+			</description>
+		</method>
+		<method name="serialize_node_with_context">
+			<return type="Dictionary" />
+			<param index="0" name="node" type="Node" />
+			<param index="1" name="ancestor_levels" type="int" default="2" />
+			<description>
+				Serializes a node with ancestor context for better structural understanding.
+			</description>
+		</method>
+		<method name="set_detail_level">
+			<return type="void" />
+			<param index="0" name="level" type="int" enum="MCPSceneSerializer.DetailLevel" />
+			<description>
+				Sets the serialization detail level.
+			</description>
+		</method>
+		<method name="get_detail_level" qualifiers="const">
+			<return type="int" enum="MCPSceneSerializer.DetailLevel" />
+			<description>
+				Returns the detail level.
+			</description>
+		</method>
 		<method name="set_max_depth">
 			<return type="void" />
 			<param index="0" name="depth" type="int" />
@@ -23,12 +51,46 @@
 				Sets the maximum depth to traverse in the scene tree.
 			</description>
 		</method>
+		<method name="get_max_depth" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the maximum traversal depth.
+			</description>
+		</method>
 		<method name="set_max_nodes">
 			<return type="void" />
-			<param index="0" name="count" type="int" />
+			<param index="0" name="nodes" type="int" />
 			<description>
 				Sets the maximum number of nodes to serialize.
 			</description>
 		</method>
+		<method name="get_max_nodes" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the maximum node count.
+			</description>
+		</method>
 	</methods>
+	<members>
+		<member name="detail_level" type="int" setter="set_detail_level" getter="get_detail_level" enum="MCPSceneSerializer.DetailLevel" default="1">
+			Serialization detail level (Minimal, Standard, Full).
+		</member>
+		<member name="max_depth" type="int" setter="set_max_depth" getter="get_max_depth" default="10">
+			Maximum depth to traverse in the scene tree.
+		</member>
+		<member name="max_nodes" type="int" setter="set_max_nodes" getter="get_max_nodes" default="500">
+			Maximum number of nodes to serialize.
+		</member>
+	</members>
+	<constants>
+		<constant name="DETAIL_MINIMAL" value="0" enum="DetailLevel">
+			Only node names and types.
+		</constant>
+		<constant name="DETAIL_STANDARD" value="1" enum="DetailLevel">
+			Standard properties included.
+		</constant>
+		<constant name="DETAIL_FULL" value="2" enum="DetailLevel">
+			All properties serialized.
+		</constant>
+	</constants>
 </class>

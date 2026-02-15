@@ -151,7 +151,7 @@ claude
 | `godot_get_runtime_errors` | Get structured runtime errors with source locations and call stacks |
 | `godot_capture_screenshot` | Capture screenshot from running game |
 | `godot_runtime_camera_control` | Control debug camera in running game |
-| `godot_get_runtime_camera_info` | Get camera state from running game |
+| `godot_get_runtime_camera_info` | Get camera override state from running game |
 
 ### Transform
 | Tool | Description |
@@ -257,11 +257,16 @@ modules/claude/
 │   ├── godot_mcp_tools_animation.cpp # Animation creation and inspection tools
 │   ├── godot_mcp_tools_resource.cpp # Project file listing and filesystem scan
 │   ├── godot_mcp_tools_editor.cpp   # Editor log, screenshot, viewport camera, editor control, canvas view, editor state tools
-│   └── godot_mcp_validation.cpp     # Path/type validation & type coercion
+│   ├── godot_mcp_validation.cpp     # Path/type validation & type coercion
+│   └── godot_mcp_type_helpers.h     # JSON-to-Godot type conversion helpers
+├── terminal/
+│   ├── con_pty_process.*        # Windows ConPTY process wrapper
+│   └── ansi_terminal_state.*    # ANSI escape sequence parser & state machine
 ├── util/
 │   └── mcp_scene_serializer.*   # Scene to JSON
 ├── editor/
 │   ├── claude_mcp_dock.*        # Status dock
+│   ├── claude_terminal_dock.*   # Embedded terminal (Windows only)
 │   └── claude_editor_plugin.*   # Plugin (lifecycle + polling)
 ├── bridge/
 │   └── claude_mcp_bridge.py     # Stdio-to-TCP bridge
@@ -271,12 +276,16 @@ modules/claude/
 │   ├── GodotMCPServer.xml
 │   ├── MCPSceneSerializer.xml
 │   ├── ClaudeMCPDock.xml
-│   └── ClaudeEditorPlugin.xml
+│   ├── ClaudeEditorPlugin.xml
+│   ├── ClaudeTerminalDock.xml
+│   ├── ConPtyProcess.xml
+│   └── AnsiTerminalState.xml
 └── docs/
     ├── TOOL_REFERENCE.md        # Full tool API reference
     ├── IMPLEMENTATION_GUIDE.md  # Build & development guide
     ├── MCP_SERVER.md            # Protocol details
-    └── SECURITY.md              # Security model
+    ├── SECURITY.md              # Security model
+    └── FUTURE_WORK.md           # Planned features & improvements
 ```
 
 ## Requirements

@@ -195,26 +195,41 @@ Before deployment, verify:
 | `godot_get_property` | Low | Read-only |
 | `godot_get_selected_nodes` | Low | Read-only |
 | `godot_read_script` | Low | Read-only, path validation |
+| `godot_validate_script` | Low | Read-only, path validation |
 | `godot_select_nodes` | Low | UI-only change |
+| `godot_get_class_info` | Low | Read-only |
+| `godot_get_node_info` | Low | Read-only |
+| `godot_project_files` | Low | Read-only |
+| `godot_get_animation_info` | Low | Read-only |
 | `godot_set_property` | Medium | Undo/redo |
+| `godot_set_properties_batch` | Medium | Undo/redo |
 | `godot_add_node` | Medium | Undo/redo, type validation |
 | `godot_create_script` | Medium | Path validation, undo/redo |
+| `godot_save_scene` | Medium | Path validation, disk write |
+| `godot_new_scene` | Medium | Undo/redo |
+| `godot_open_scene` | Medium | Path validation, file existence check |
+| `godot_instance_scene` | Medium | Undo/redo, path validation |
+| `godot_connect_signal` | Medium | Undo/redo |
+| `godot_disconnect_signal` | Medium | Undo/redo |
+| `godot_project_settings` | Medium | Undo/redo |
+| `godot_input_map` | Medium | Undo/redo |
+| `godot_bake_navigation` | Medium | Undo/redo |
+| `godot_create_animation` | Medium | Undo/redo |
+| `godot_transform_nodes` | Medium | Undo/redo, modifies node transforms |
+| `godot_scene_operations` | Medium | Undo/redo, modifies scene hierarchy |
 | `godot_run_scene` | Medium | Uses editor's run system |
 | `godot_stop_scene` | Medium | Uses editor's run system |
-| `godot_remove_node` | High | Undo/redo, root protection |
-| `godot_modify_script` | High | Path validation, undo/redo |
 | `godot_get_runtime_scene_tree` | Low | Read-only, requires active game |
 | `godot_get_runtime_output` | Low | Read-only, requires active game |
+| `godot_get_runtime_errors` | Low | Read-only, requires active game |
 | `godot_capture_screenshot` | Low | Read-only, requires active game |
 | `godot_runtime_camera_control` | Low | Camera override only, requires active game |
 | `godot_get_runtime_camera_info` | Low | Read-only, requires active game |
-| `godot_validate_script` | Low | Read-only, path validation |
-| `godot_get_runtime_errors` | Low | Read-only, requires active game |
 | `godot_get_editor_log` | Low | Read-only |
 | `godot_editor_screenshot` | Low | Read-only, captures viewport image |
 | `godot_editor_viewport_camera` | Low | Editor camera only, no scene mutation |
 | `godot_editor_control` | Low | UI-only changes (panel switching, display mode) |
 | `godot_canvas_view` | Low | Editor view only, no scene mutation |
 | `godot_editor_state` | Low | Read-only |
-| `godot_transform_nodes` | Medium | Undo/redo, modifies node transforms |
-| `godot_scene_operations` | Medium | Undo/redo, modifies scene hierarchy |
+| `godot_remove_node` | High | Undo/redo, root protection |
+| `godot_modify_script` | High | Path validation, undo/redo |

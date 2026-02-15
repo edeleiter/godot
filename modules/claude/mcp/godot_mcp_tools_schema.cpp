@@ -292,7 +292,7 @@ Dictionary GodotMCPServer::_handle_tools_list(const Dictionary &p_params) {
 	camera_info_params.push_back(Dictionary{ { "name", "camera_type" }, { "type", "string" }, { "description", "Camera type: '3d' (default) or '2d'" }, { "required", false } });
 	tools.push_back(_define_tool(
 			"godot_get_runtime_camera_info",
-			"Get current camera state from the running game (position, rotation, FOV/zoom)",
+			"Get camera override state from the running game",
 			_make_schema(camera_info_params)));
 
 	// Introspection tools.
@@ -366,7 +366,7 @@ Dictionary GodotMCPServer::_handle_tools_list(const Dictionary &p_params) {
 	create_anim_params.push_back(Dictionary{ { "name", "tracks" }, { "type", "array" }, { "description", "Optional array of track definitions: [{type, path, keys}]. Types: 'value', 'position_3d', 'rotation_3d', 'scale_3d', 'method', 'blend_shape'" }, { "required", false } });
 	tools.push_back(_define_tool(
 			"godot_create_animation",
-			"Create an animation with tracks and keyframes on an AnimationPlayer. Supports position/rotation/scale/value/method tracks.",
+			"Create an animation with tracks and keyframes on an AnimationPlayer or AnimationMixer. Supports position/rotation/scale/value/method tracks.",
 			_make_schema(create_anim_params)));
 
 	Array anim_info_params;

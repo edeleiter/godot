@@ -42,6 +42,9 @@ def get_doc_classes():
         "MCPSceneSerializer",
         "ClaudeMCPDock",
         "ClaudeEditorPlugin",
+        "ConPtyProcess",
+        "AnsiTerminalState",
+        "ClaudeTerminalDock",
     ]
 
 
@@ -62,17 +65,21 @@ env_claude = env_modules.Clone()
 
 module_sources = []
 
-# MCP server
-module_sources += Glob("mcp/*.cpp")
-
-# Utilities
-module_sources += Glob("util/*.cpp")
-
-# Editor integration (only when building with tools/editor)
 if env.editor_build:
+    # MCP server
+    module_sources += Glob("mcp/*.cpp")
+
+    # Utilities
+    module_sources += Glob("util/*.cpp")
+
+    # Editor integration
     module_sources += Glob("editor/*.cpp")
 
-# Root registration files
+    # Terminal (ConPTY) sources are Windows-only
+    if env["platform"] == "windows":
+        module_sources += Glob("terminal/*.cpp")
+
+# Root registration files (always compiled, but gated by TOOLS_ENABLED)
 module_sources += Glob("*.cpp")
 
 env_claude.add_source_files(env.modules_sources, module_sources)
@@ -157,21 +164,43 @@ Implement these tools in `GodotMCPServer`:
 | `godot_remove_node` | P0 | Remove node with undo/redo |
 | `godot_set_property` | P0 | Set property with undo/redo |
 | `godot_get_property` | P1 | Get property value |
+| `godot_set_properties_batch` | P1 | Set multiple properties in one undo action |
 | `godot_create_script` | P1 | Create GDScript file |
 | `godot_read_script` | P1 | Read script content |
 | `godot_modify_script` | P2 | Edit existing script |
+| `godot_validate_script` | P2 | Validate GDScript for compilation errors |
 | `godot_get_selected_nodes` | P2 | Get selection |
 | `godot_select_nodes` | P2 | Set selection |
+| `godot_save_scene` | P1 | Save current scene (or save-as with path) |
+| `godot_new_scene` | P1 | Create empty scene with typed root |
+| `godot_open_scene` | P1 | Open existing scene file |
+| `godot_instance_scene` | P1 | Instance a PackedScene as child node |
+| `godot_connect_signal` | P2 | Connect signal between nodes |
+| `godot_disconnect_signal` | P2 | Disconnect signal connection |
+| `godot_project_settings` | P2 | Get/set/list project settings |
+| `godot_input_map` | P2 | Add/remove input actions and bindings |
+| `godot_get_class_info` | P2 | Query ClassDB for class info |
+| `godot_get_node_info` | P2 | Full node inspector with property values |
+| `godot_project_files` | P2 | List project files, rescan, import diagnostics |
+| `godot_bake_navigation` | P2 | Bake navigation mesh on NavigationRegion3D |
+| `godot_create_animation` | P2 | Create animation with tracks and keyframes |
+| `godot_get_animation_info` | P2 | Inspect animations, tracks, state machines |
+| `godot_transform_nodes` | P2 | Translate, rotate, scale nodes |
+| `godot_scene_operations` | P2 | Duplicate, reparent, visibility, lock, groups |
 | `godot_run_scene` | P2 | Run scene |
 | `godot_stop_scene` | P2 | Stop scene |
 | `godot_get_runtime_scene_tree` | P2 | Get runtime scene tree |
 | `godot_get_runtime_output` | P2 | Get runtime log output |
+| `godot_get_runtime_errors` | P2 | Get structured runtime errors with call stacks |
 | `godot_capture_screenshot` | P2 | Capture game screenshot |
 | `godot_runtime_camera_control` | P2 | Control debug camera in running game |
-| `godot_get_runtime_camera_info` | P2 | Get camera state from running game |
-| `godot_validate_script` | P2 | Validate GDScript for compilation errors |
-| `godot_get_runtime_errors` | P2 | Get structured runtime errors with call stacks |
+| `godot_get_runtime_camera_info` | P2 | Get camera override state from running game |
 | `godot_get_editor_log` | P2 | Get editor Output panel messages |
+| `godot_editor_screenshot` | P2 | Capture editor viewport screenshot |
+| `godot_editor_viewport_camera` | P2 | Control 3D editor viewport camera |
+| `godot_editor_control` | P2 | Switch panels, display mode, toggle grid |
+| `godot_canvas_view` | P2 | Control 2D canvas editor view |
+| `godot_editor_state` | P2 | Get comprehensive editor state |
 
 ## Phase 5: Editor Integration
 
@@ -261,6 +290,10 @@ Check:
 
 ```text
 modules/claude/
+├── .claude-plugin/
+│   ├── plugin.json                       ✓
+│   └── marketplace.json                  ✓
+├── .mcp.json                             ✓
 ├── config.py                             ✓
 ├── SCsub                                 ✓
 ├── register_types.h                      ✓
@@ -273,27 +306,46 @@ modules/claude/
 │   ├── godot_mcp_tools_schema.cpp        ✓
 │   ├── godot_mcp_tools_scene.cpp         ✓
 │   ├── godot_mcp_tools_script.cpp        ✓
+│   ├── godot_mcp_tools_signals.cpp       ✓
+│   ├── godot_mcp_tools_project.cpp       ✓
 │   ├── godot_mcp_tools_runtime.cpp       ✓
+│   ├── godot_mcp_tools_3d.cpp            ✓
+│   ├── godot_mcp_tools_animation.cpp     ✓
+│   ├── godot_mcp_tools_resource.cpp      ✓
 │   ├── godot_mcp_tools_editor.cpp        ✓
-│   └── godot_mcp_validation.cpp          ✓
+│   ├── godot_mcp_validation.cpp          ✓
+│   └── godot_mcp_type_helpers.h          ✓
+├── terminal/
+│   ├── con_pty_process.h                 ✓
+│   ├── con_pty_process.cpp               ✓
+│   ├── ansi_terminal_state.h             ✓
+│   └── ansi_terminal_state.cpp           ✓
 ├── util/
 │   ├── mcp_scene_serializer.h            ✓
 │   └── mcp_scene_serializer.cpp          ✓
 ├── editor/
 │   ├── claude_mcp_dock.h                 ✓
 │   ├── claude_mcp_dock.cpp               ✓
+│   ├── claude_terminal_dock.h            ✓
+│   ├── claude_terminal_dock.cpp          ✓
 │   ├── claude_editor_plugin.h            ✓
 │   └── claude_editor_plugin.cpp          ✓
+├── skills/
+│   └── godot-game-dev/                   ✓
 ├── doc_classes/
 │   ├── GodotMCPServer.xml                ✓
 │   ├── MCPSceneSerializer.xml            ✓
 │   ├── ClaudeMCPDock.xml                 ✓
-│   └── ClaudeEditorPlugin.xml            ✓
+│   ├── ClaudeEditorPlugin.xml            ✓
+│   ├── ClaudeTerminalDock.xml            ✓
+│   ├── ConPtyProcess.xml                 ✓
+│   └── AnsiTerminalState.xml             ✓
 └── docs/
     ├── TOOL_REFERENCE.md                 ✓
     ├── MCP_SERVER.md                     ✓
     ├── SECURITY.md                       ✓
-    └── IMPLEMENTATION_GUIDE.md           ✓
+    ├── IMPLEMENTATION_GUIDE.md           ✓
+    └── FUTURE_WORK.md                    ✓
 ```
 
 ## Next Steps
