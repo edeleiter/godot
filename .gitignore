@@ -395,3 +395,7 @@ $RECYCLE.BIN/
 *.msp
 *.lnk
 *.generated.props
+
+
+# demo project (for now)
+demo/*
