@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git Policy
+
+**The user handles ALL git actions.** Never run `git commit`, `git push`, `git add`, or any other git write command. Only use read-only git commands (e.g. `git status`, `git diff`, `git log`) if needed for context.
+
 ## Build Environment
 
 **Primary: Git Bash on Windows.** The build scripts and scons work natively with Python/uv on Windows. The scripts auto-create a `.venv` in the repo root if needed.
