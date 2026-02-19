@@ -31,10 +31,10 @@
 #pragma once
 
 #include "core/templates/hash_map.h"
-#include "core/templates/hash_set.h"
-#include "core/templates/local_vector.h"
 #include "servers/rendering/rendering_device.h"
 
+// Internal-only class (not a GDCLASS, not exposed to scripting or ClassDB).
+// Manages per-frame BLAS/TLAS lifecycle for the RT acceleration structure infrastructure.
 class RTSceneManager {
 public:
 	RTSceneManager();
@@ -59,11 +59,9 @@ private:
 	struct InstanceData {
 		RID mesh;
 		Transform3D transform;
-		bool dirty = true;
 	};
 
 	HashMap<RID, InstanceData> instances;
-	HashSet<RID> built_blases; // Tracks which BLAS RIDs have been GPU-built.
 	RID tlas;
 	RID instances_buffer;
 	uint32_t instances_buffer_size = 0;

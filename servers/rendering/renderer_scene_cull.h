@@ -570,6 +570,9 @@ public:
 		Instance() :
 				scenario_item(this),
 				update_item(this) {
+			// Initialize to now so instances are non-static at birth (prevents
+			// false static classification when OS uptime > SHADOW_STATIC_THRESHOLD_SEC).
+			shadow_moved_msec = OS::get_singleton()->get_ticks_msec();
 			base_type = RS::INSTANCE_NONE;
 			cast_shadows = RS::SHADOW_CASTING_SETTING_ON;
 			receive_shadows = true;

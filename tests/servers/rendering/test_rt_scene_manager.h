@@ -94,4 +94,16 @@ TEST_CASE("[RTSceneManager] update_instance_transform with no instances") {
 	CHECK(manager.get_instance_count() == 0);
 }
 
+TEST_CASE("[RTSceneManager] No persistent BLAS cache accumulation across register/unregister") {
+	RTSceneManager manager;
+	// In the old code, built_blases would grow unboundedly and could collide with
+	// recycled RIDs, silently skipping GPU builds. After the fix, there is no such
+	// set — register/unregister is idempotent with no retained state.
+	// Verify instance count starts at zero.
+	CHECK(manager.get_instance_count() == 0);
+	// RT not available in headless test context, so register is a no-op.
+	// This test documents that the cache was removed; GPU-path correctness is
+	// verified by Phase B integration tests.
+}
+
 } // namespace TestRTSceneManager

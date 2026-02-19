@@ -41,15 +41,6 @@
 
 #define PRELOAD_PIPELINES_ON_SURFACE_CACHE_CONSTRUCTION 1
 
-static void _filter_static_cached_shadows(LocalVector<int> &r_shadow_indices, const RendererSceneRender::RenderShadowData *p_render_shadows) {
-	uint32_t write_idx = 0;
-	for (uint32_t i = 0; i < r_shadow_indices.size(); i++) {
-		if (!p_render_shadows[r_shadow_indices[i]].use_static_cache) {
-			r_shadow_indices[write_idx++] = r_shadow_indices[i];
-		}
-	}
-	r_shadow_indices.resize(write_idx);
-}
 
 using namespace RendererSceneRenderImplementation;
 

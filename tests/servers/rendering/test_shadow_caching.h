@@ -81,4 +81,16 @@ TEST_CASE("[ShadowCaching] Threshold value is reasonable") {
 	CHECK(threshold <= 2.0);
 }
 
+TEST_CASE("[ShadowCaching] New instance is not static immediately at creation") {
+	// Simulate an instance created at runtime (engine has been running > 500ms).
+	// With the old code (shadow_moved_msec = 0), this would return true.
+	// After the fix, it must return false.
+	RendererSceneCull::Instance inst;
+	// shadow_moved_msec should be initialized to current ticks, not 0.
+	uint64_t now = OS::get_singleton()->get_ticks_msec();
+	uint64_t elapsed = now - inst.shadow_moved_msec;
+	CHECK_MESSAGE(elapsed < 500,
+			"New instance should not be classified as static immediately — shadow_moved_msec must be initialized to current ticks.");
+}
+
 } // namespace TestShadowCaching

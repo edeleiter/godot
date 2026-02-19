@@ -444,7 +444,7 @@ public:
 		return mesh->surfaces[p_surface_index];
 	}
 
-	_FORCE_INLINE_ RID mesh_surface_get_blas(RID p_mesh, uint32_t p_surface_index) {
+	_FORCE_INLINE_ RID mesh_surface_get_blas(RID p_mesh, uint32_t p_surface_index) const {
 		Mesh *mesh = mesh_owner.get_or_null(p_mesh);
 		ERR_FAIL_NULL_V(mesh, RID());
 		ERR_FAIL_UNSIGNED_INDEX_V(p_surface_index, mesh->surface_count, RID());

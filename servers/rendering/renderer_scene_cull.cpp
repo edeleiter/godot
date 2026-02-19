@@ -539,6 +539,9 @@ void RendererSceneCull::instance_initialize(RID p_rid) {
 	instance_owner.initialize_rid(p_rid);
 	Instance *instance = instance_owner.get_or_null(p_rid);
 	instance->self = p_rid;
+	// Mark as "just created" so it is not immediately classified as a static shadow
+	// caster (which would skip its first shadow render).
+	instance->shadow_moved_msec = OS::get_singleton()->get_ticks_msec();
 }
 
 void RendererSceneCull::_instance_update_mesh_instance(Instance *p_instance) const {
@@ -595,7 +598,9 @@ void RendererSceneCull::instance_set_base(RID p_instance, RID p_base) {
 			case RS::INSTANCE_PARTICLES: {
 				InstanceGeometryData *geom = static_cast<InstanceGeometryData *>(instance->base_data);
 				scene_render->geometry_instance_free(geom->geometry_instance);
-				scene_render->rt_unregister_instance(p_instance);
+				if (instance->base_type == RS::INSTANCE_MESH) {
+					scene_render->rt_unregister_instance(p_instance);
+				}
 			} break;
 			case RS::INSTANCE_LIGHT: {
 				InstanceLightData *light = static_cast<InstanceLightData *>(instance->base_data);

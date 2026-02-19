@@ -55,7 +55,6 @@ void RTSceneManager::cleanup() {
 		}
 	}
 	instances.clear();
-	built_blases.clear();
 	instances_buffer_size = 0;
 	tlas_dirty = true;
 }
@@ -68,7 +67,6 @@ void RTSceneManager::register_instance(RID p_instance, RID p_mesh, const Transfo
 	InstanceData data;
 	data.mesh = p_mesh;
 	data.transform = p_transform;
-	data.dirty = true;
 
 	instances.insert(p_instance, data);
 	tlas_dirty = true;
@@ -84,7 +82,6 @@ void RTSceneManager::update_instance_transform(RID p_instance, const Transform3D
 	InstanceData *data = instances.getptr(p_instance);
 	if (data) {
 		data->transform = p_transform;
-		data->dirty = true;
 		tlas_dirty = true;
 	}
 }
@@ -99,22 +96,28 @@ void RTSceneManager::update_tlas() {
 	// initialized during resource loading, making it unsafe to iterate instances.
 	// tlas_dirty stays true so the update completes on the next normal frame.
 	if (is_updating_tlas) {
-		WARN_PRINT_ONCE("RTSceneManager::update_tlas() skipped due to reentrant call — will complete next frame.");
+		WARN_PRINT_ONCE("RTSceneManager::update_tlas() skipped due to reentrant call -- will complete next frame.");
 		return;
 	}
 	is_updating_tlas = true;
 
 	RD *rd = RD::get_singleton();
+	// Cannot use ERR_FAIL_NULL here: the guard must be reset before returning,
+	// or all future update_tlas() calls will be silently skipped.
 	if (rd == nullptr) {
 		is_updating_tlas = false;
 		ERR_PRINT("RTSceneManager::update_tlas: RenderingDevice singleton is null.");
 		return;
 	}
 
-	// Create any deferred BLAS from mesh loading.
-	RendererRD::MeshStorage::get_singleton()->build_pending_blas_surfaces();
-
 	RendererRD::MeshStorage *mesh_storage = RendererRD::MeshStorage::get_singleton();
+	// Create any deferred BLAS from mesh loading.
+	mesh_storage->build_pending_blas_surfaces();
+
+	// TODO(Phase B): Deformable meshes (skinning, blend shapes) need per-frame BLAS rebuilds.
+	// Currently, their BLAS is a snapshot from creation time and becomes stale when vertex data
+	// changes. Options: (a) exclude skinned meshes from TLAS entirely (safest for Phase B),
+	// (b) rebuild BLAS per frame for deformable surfaces (expensive). See RT_INFRASTRUCTURE.md.
 
 	// Collect BLAS from all mesh surfaces across all registered instances.
 	Vector<RID> blases;
@@ -127,14 +130,11 @@ void RTSceneManager::update_tlas() {
 			if (blas.is_valid()) {
 				blases.push_back(blas);
 				transforms.push_back(kv.value.transform);
-				// Only GPU-build BLASes that haven't been built yet.
-				if (!built_blases.has(blas)) {
-					Error blas_err = rd->acceleration_structure_build(blas);
-					if (blas_err == OK) {
-						built_blases.insert(blas);
-					} else {
-						WARN_PRINT("RTSceneManager: BLAS build failed for RID " + itos(blas.get_id()) + " — will retry next frame.");
-					}
+				// Build every frame; GPU driver can no-op static BLASes.
+				// Avoids RID-recycling hazards from a persistent built-set.
+				Error blas_err = rd->acceleration_structure_build(blas);
+				if (blas_err != OK) {
+					WARN_PRINT("RTSceneManager: BLAS build failed for RID " + itos(blas.get_id()) + " -- will retry next frame.");
 				}
 			}
 		}
@@ -175,10 +175,6 @@ void RTSceneManager::update_tlas() {
 		ERR_PRINT("RTSceneManager: Failed to build TLAS.");
 	}
 
-	// Clear dirty flags.
-	for (KeyValue<RID, InstanceData> &kv : instances) {
-		kv.value.dirty = false;
-	}
 	tlas_dirty = false;
 	is_updating_tlas = false;
 }

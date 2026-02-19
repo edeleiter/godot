@@ -2340,7 +2340,15 @@ void MeshStorage::build_pending_blas_surfaces() {
 			pos_attr.location = 0;
 			pos_attr.offset = 0;
 			pos_attr.format = RD::DATA_FORMAT_R32G32B32_SFLOAT;
-			pos_attr.stride = s->vertex_buffer_size / s->vertex_count;
+			// Subtract the 4-byte tangent-normal padding (added at surface creation) so the
+			// stride reflects actual per-vertex size rather than buffer-total / count.
+			uint32_t effective_vertex_buffer_size = s->vertex_buffer_size;
+			if (!(s->format & RS::ARRAY_FLAG_COMPRESS_ATTRIBUTES) &&
+					(s->format & RS::ARRAY_FORMAT_NORMAL) &&
+					!(s->format & RS::ARRAY_FORMAT_TANGENT)) {
+				effective_vertex_buffer_size -= sizeof(uint16_t) * 2;
+			}
+			pos_attr.stride = effective_vertex_buffer_size / s->vertex_count;
 
 			Vector<RD::VertexAttribute> position_attrs;
 			position_attrs.push_back(pos_attr);
