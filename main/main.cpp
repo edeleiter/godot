@@ -4794,6 +4794,7 @@ bool Main::iteration() {
 	GodotProfileZone("Main::iteration");
 	GodotProfileZoneGroupedFirst(_profile_zone, "prepare");
 	iterating++;
+	Engine::get_singleton()->push_iteration();
 
 	const uint64_t ticks = OS::get_singleton()->get_ticks_usec();
 	Engine::get_singleton()->_frame_ticks = ticks;
@@ -5017,6 +5018,7 @@ bool Main::iteration() {
 	}
 
 	iterating--;
+	Engine::get_singleton()->pop_iteration();
 
 	if (movie_writer) {
 		GodotProfileZoneGrouped(_profile_zone, "movie_writer->add_frame");

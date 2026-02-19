@@ -221,6 +221,8 @@ RID RenderingDevice::shader_create_from_spirv(const Vector<ShaderStageSPIRVData>
 /********************************/
 
 RID RenderingDevice::blas_create(RID p_vertex_array, RID p_index_array, BitField<AccelerationStructureGeometryBits> p_geometry_bits, uint32_t p_position_attribute_location) {
+	_THREAD_SAFE_METHOD_
+
 	ERR_FAIL_COND_V_MSG(!has_feature(SUPPORTS_RAYTRACING_PIPELINE) && !has_feature(SUPPORTS_RAY_QUERY), RID(), "The current rendering device has neither raytracing pipeline nor ray query support.");
 
 	VertexArray *vertex_array = vertex_array_owner.get_or_null(p_vertex_array);
@@ -296,12 +298,20 @@ RID RenderingDevice::blas_create(RID p_vertex_array, RID p_index_array, BitField
 	if (index_array && index_array->draw_tracker) {
 		acceleration_structure.draw_trackers.push_back(index_array->draw_tracker);
 	}
-	_check_transfer_worker_index_array(index_array);
+	if (index_array) {
+		_check_transfer_worker_index_array(index_array);
+	}
 
 	RID id = acceleration_structure_owner.make_rid(acceleration_structure);
 #ifdef DEV_ENABLED
 	set_resource_name(id, "RID:" + itos(id.get_id()));
 #endif
+
+	_add_dependency(id, p_vertex_array);
+	if (p_index_array.is_valid()) {
+		_add_dependency(id, p_index_array);
+	}
+
 	return id;
 }
 
@@ -409,6 +419,9 @@ RID RenderingDevice::tlas_create(RID p_instances_buffer) {
 #ifdef DEV_ENABLED
 	set_resource_name(id, "RID:" + itos(id.get_id()));
 #endif
+
+	_add_dependency(id, p_instances_buffer);
+
 	return id;
 }
 
@@ -434,8 +447,9 @@ Error RenderingDevice::acceleration_structure_build(RID p_acceleration_structure
 		accel->scratch_buffer = RID();
 	}
 	if (accel->scratch_buffer == RID()) {
-		accel->scratch_buffer = storage_buffer_create(scratch_size, { nullptr, 0 }, RDD::BUFFER_USAGE_STORAGE_BIT | RDD::BUFFER_USAGE_DEVICE_ADDRESS_BIT);
+		accel->scratch_buffer = storage_buffer_create(scratch_size, {}, 0, BUFFER_CREATION_DEVICE_ADDRESS_BIT);
 		ERR_FAIL_COND_V(accel->scratch_buffer == RID(), ERR_CANT_CREATE);
+		_add_dependency(accel->scratch_buffer, p_acceleration_structure);
 	}
 
 	if (scratch_buffer == nullptr) {
@@ -6646,6 +6660,9 @@ void RenderingDevice::_check_transfer_worker_vertex_array(VertexArray *p_vertex_
 }
 
 void RenderingDevice::_check_transfer_worker_index_array(IndexArray *p_index_array) {
+	if (!p_index_array) {
+		return;
+	}
 	if (p_index_array->transfer_worker_index >= 0) {
 		_check_transfer_worker_operation(p_index_array->transfer_worker_index, p_index_array->transfer_worker_operation);
 		p_index_array->transfer_worker_index = -1;
@@ -7008,6 +7025,7 @@ void RenderingDevice::_free_internal(RID p_id) {
 		compute_pipeline_owner.free(p_id);
 	} else if (acceleration_structure_owner.owns(p_id)) {
 		AccelerationStructure *acceleration_structure = acceleration_structure_owner.get_or_null(p_id);
+		RDG::resource_tracker_free(acceleration_structure->draw_tracker);
 		frames[frame].acceleration_structures_to_dispose_of.push_back(*acceleration_structure);
 		acceleration_structure_owner.free(p_id);
 	} else if (raytracing_pipeline_owner.owns(p_id)) {
@@ -7016,7 +7034,7 @@ void RenderingDevice::_free_internal(RID p_id) {
 		raytracing_pipeline_owner.free(p_id);
 	} else {
 #ifdef DEV_ENABLED
-		ERR_PRINT("Attempted to free invalid ID: " + itos(p_id.get_id()) + " " + resource_name);
+		CRASH_NOW_MSG("Attempted to free invalid ID: " + itos(p_id.get_id()) + " " + resource_name);
 #else
 		ERR_PRINT("Attempted to free invalid ID: " + itos(p_id.get_id()));
 #endif
@@ -7201,12 +7219,11 @@ void RenderingDevice::_free_pending_resources(int p_frame) {
 	}
 
 	// Acceleration structures.
+	// Note: scratch_buffer is freed via the dependency cascade in _free_dependencies(),
+	// not here. The dependency is registered in acceleration_structure_build().
 	while (frames[p_frame].acceleration_structures_to_dispose_of.front()) {
 		AccelerationStructure &acceleration_structure = frames[p_frame].acceleration_structures_to_dispose_of.front()->get();
 
-		if (acceleration_structure.scratch_buffer != RID()) {
-			free_rid(acceleration_structure.scratch_buffer);
-		}
 		driver->acceleration_structure_free(acceleration_structure.driver_id);
 
 		frames[p_frame].acceleration_structures_to_dispose_of.pop_front();
@@ -8124,6 +8141,8 @@ void RenderingDevice::finalize() {
 	// Free all resources.
 	_free_rids(render_pipeline_owner, "Pipeline");
 	_free_rids(compute_pipeline_owner, "Compute");
+	_free_rids(raytracing_pipeline_owner, "RaytracingPipeline");
+	_free_rids(acceleration_structure_owner, "AccelerationStructure");
 	_free_rids(uniform_set_owner, "UniformSet");
 	_free_rids(texture_buffer_owner, "TextureBuffer");
 	_free_rids(storage_buffer_owner, "StorageBuffer");

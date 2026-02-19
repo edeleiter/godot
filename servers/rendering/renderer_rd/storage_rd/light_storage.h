@@ -397,6 +397,7 @@ private:
 				uint64_t version = 0;
 				uint64_t fog_version = 0; // used for fog
 				uint64_t alloc_tick = 0;
+				bool static_cache_valid = false;
 
 				Shadow() {}
 			};
@@ -414,6 +415,8 @@ private:
 
 		RID depth;
 		RID fb; //for copying
+		RID depth_static; // cached static caster depth
+		RID fb_static; // framebuffer for static caster rendering
 
 		HashMap<RID, uint32_t> shadow_owners;
 	};

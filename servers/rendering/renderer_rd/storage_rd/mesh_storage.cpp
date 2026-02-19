@@ -30,6 +30,8 @@
 
 #include "mesh_storage.h"
 
+#include "core/config/engine.h"
+
 using namespace RendererRD;
 
 MeshStorage *MeshStorage::singleton = nullptr;
@@ -373,6 +375,12 @@ void MeshStorage::mesh_add_surface(RID p_mesh, const RS::SurfaceData &p_surface)
 	const bool use_as_storage = (new_surface.skin_data.size() || mesh->blend_shape_count > 0);
 	const BitField<RD::BufferCreationBits> as_storage_flag = use_as_storage ? RD::BUFFER_CREATION_AS_STORAGE_BIT : 0;
 
+	// Add RT buffer flags when acceleration structures are supported.
+	BitField<RD::BufferCreationBits> rt_flags = 0;
+	if (RD::get_singleton()->has_feature(RD::SUPPORTS_RAYTRACING_PIPELINE) || RD::get_singleton()->has_feature(RD::SUPPORTS_RAY_QUERY)) {
+		rt_flags = RD::BUFFER_CREATION_DEVICE_ADDRESS_BIT | RD::BUFFER_CREATION_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT;
+	}
+
 	if (new_surface.vertex_data.size()) {
 		// If we have an uncompressed surface that contains normals, but not tangents, we need to differentiate the array
 		// from a compressed array in the shader. To do so, we allow the normal to read 4 components out of the buffer
@@ -385,10 +393,10 @@ void MeshStorage::mesh_add_surface(RID p_mesh, const RS::SurfaceData &p_surface)
 			Vector<uint8_t> new_vertex_data;
 			new_vertex_data.resize_initialized(new_surface.vertex_data.size() + sizeof(uint16_t) * 2);
 			memcpy(new_vertex_data.ptrw(), new_surface.vertex_data.ptr(), new_surface.vertex_data.size());
-			s->vertex_buffer = RD::get_singleton()->vertex_buffer_create(new_vertex_data.size(), new_vertex_data, as_storage_flag);
+			s->vertex_buffer = RD::get_singleton()->vertex_buffer_create(new_vertex_data.size(), new_vertex_data, as_storage_flag | rt_flags);
 			s->vertex_buffer_size = new_vertex_data.size();
 		} else {
-			s->vertex_buffer = RD::get_singleton()->vertex_buffer_create(new_surface.vertex_data.size(), new_surface.vertex_data, as_storage_flag);
+			s->vertex_buffer = RD::get_singleton()->vertex_buffer_create(new_surface.vertex_data.size(), new_surface.vertex_data, as_storage_flag | rt_flags);
 			s->vertex_buffer_size = new_surface.vertex_data.size();
 		}
 	}
@@ -411,7 +419,7 @@ void MeshStorage::mesh_add_surface(RID p_mesh, const RS::SurfaceData &p_surface)
 	if (new_surface.index_count) {
 		bool is_index_16 = new_surface.vertex_count <= 65536 && new_surface.vertex_count > 0;
 
-		s->index_buffer = RD::get_singleton()->index_buffer_create(new_surface.index_count, is_index_16 ? RD::INDEX_BUFFER_FORMAT_UINT16 : RD::INDEX_BUFFER_FORMAT_UINT32, new_surface.index_data, false);
+		s->index_buffer = RD::get_singleton()->index_buffer_create(new_surface.index_count, is_index_16 ? RD::INDEX_BUFFER_FORMAT_UINT16 : RD::INDEX_BUFFER_FORMAT_UINT32, new_surface.index_data, false, rt_flags);
 		s->index_buffer_size = new_surface.index_data.size();
 		s->index_count = new_surface.index_count;
 		s->index_array = RD::get_singleton()->index_array_create(s->index_buffer, 0, s->index_count);
@@ -482,6 +490,15 @@ void MeshStorage::mesh_add_surface(RID p_mesh, const RS::SurfaceData &p_surface)
 		s->uniform_set = RD::get_singleton()->uniform_set_create(uniforms, skeleton_shader.version_shader[0], SkeletonShader::UNIFORM_SET_SURFACE);
 	}
 
+	// Mark surface for deferred BLAS creation if RT-eligible.
+	// Skip compressed-attribute meshes: R16G16B16A16_UNORM is not a valid Vulkan RT vertex format.
+	// Skip 2D vertex meshes: unlikely to need ray tracing acceleration.
+	if (rt_flags != 0 && s->primitive == RS::PRIMITIVE_TRIANGLES && s->vertex_count > 0 && s->vertex_buffer.is_valid()
+			&& !(new_surface.format & RS::ARRAY_FLAG_COMPRESS_ATTRIBUTES)
+			&& !(new_surface.format & RS::ARRAY_FLAG_USE_2D_VERTICES)) {
+		s->blas_pending = true;
+	}
+
 	if (mesh->surface_count == 0) {
 		mesh->aabb = new_surface.aabb;
 	} else {
@@ -494,6 +511,12 @@ void MeshStorage::mesh_add_surface(RID p_mesh, const RS::SurfaceData &p_surface)
 	mesh->surfaces = (Mesh::Surface **)memrealloc(mesh->surfaces, sizeof(Mesh::Surface *) * (mesh->surface_count + 1));
 	mesh->surfaces[mesh->surface_count] = s;
 	mesh->surface_count++;
+
+	// Add to BLAS pending list AFTER surfaces array is allocated and surface_count
+	// is incremented, so build_pending_blas_surfaces() never sees a null surfaces pointer.
+	if (s->blas_pending) {
+		blas_pending_rids.insert(p_mesh);
+	}
 
 	for (MeshInstance *mi : mesh->instances) {
 		_mesh_instance_add_surface(mi, mesh, mesh->surface_count - 1);
@@ -512,6 +535,17 @@ void MeshStorage::mesh_add_surface(RID p_mesh, const RS::SurfaceData &p_surface)
 
 void MeshStorage::_mesh_surface_clear(Mesh *p_mesh, int p_surface) {
 	Mesh::Surface &s = *p_mesh->surfaces[p_surface];
+
+	// Free RT acceleration structures BEFORE their source buffers.
+	// blas_vertex_array is a dependent of vertex_buffer (via _add_dependency
+	// in vertex_array_create). Freeing it first removes the dependency entry,
+	// preventing double-free when vertex_buffer's cascade runs.
+	if (s.blas.is_valid()) {
+		RD::get_singleton()->free_rid(s.blas);
+	}
+	if (s.blas_vertex_array.is_valid()) {
+		RD::get_singleton()->free_rid(s.blas_vertex_array);
+	}
 
 	if (s.vertex_buffer.is_valid()) {
 		RD::get_singleton()->free_rid(s.vertex_buffer); // Clears arrays as dependency automatically, including all versions.
@@ -861,6 +895,8 @@ void MeshStorage::mesh_clear(RID p_mesh) {
 	Mesh *mesh = mesh_owner.get_or_null(p_mesh);
 	ERR_FAIL_NULL(mesh);
 
+	blas_pending_rids.erase(p_mesh);
+
 	// Clear instance data before mesh data.
 	for (MeshInstance *mi : mesh->instances) {
 		_mesh_instance_clear(mi);
@@ -904,6 +940,20 @@ void MeshStorage::mesh_surface_remove(RID p_mesh, int p_surface) {
 	}
 	mesh->surfaces = (Mesh::Surface **)memrealloc(mesh->surfaces, sizeof(Mesh::Surface *) * (mesh->surface_count - 1));
 	--mesh->surface_count;
+
+	// Remove from BLAS pending list if no surfaces remain pending.
+	if (blas_pending_rids.has(p_mesh)) {
+		bool has_pending = false;
+		for (uint32_t i = 0; i < mesh->surface_count; i++) {
+			if (mesh->surfaces[i]->blas_pending) {
+				has_pending = true;
+				break;
+			}
+		}
+		if (!has_pending) {
+			blas_pending_rids.erase(p_mesh);
+		}
+	}
 
 	mesh->material_cache.clear();
 
@@ -2248,6 +2298,72 @@ MeshStorage::MultiMeshInterpolator *MeshStorage::_multimesh_get_interpolator(RID
 	ERR_FAIL_NULL_V_MSG(multimesh, nullptr, "Multimesh not found: " + itos(p_multimesh.get_id()));
 
 	return &multimesh->interpolator;
+}
+
+void MeshStorage::build_pending_blas_surfaces() {
+	RD *rd = RD::get_singleton();
+	ERR_FAIL_NULL(rd);
+
+	if (!rd->has_feature(RD::SUPPORTS_RAYTRACING_PIPELINE) && !rd->has_feature(RD::SUPPORTS_RAY_QUERY)) {
+		return;
+	}
+
+	// Skip BLAS builds when inside a nested Main::iteration. During editor startup,
+	// ProgressDialog::_update_ui calls Main::iteration() from within the outer
+	// iteration's process phase. Each nested iteration runs its own draw, which
+	// could encounter partially-committed surfaces. The outer iteration's draw
+	// (iteration depth == 1, after the process phase fully completes) will process
+	// the pending list safely.
+	if (Engine::get_singleton()->get_iteration_depth() > 1) {
+		return;
+	}
+
+	for (const RID &mesh_rid : blas_pending_rids) {
+		Mesh *mesh = mesh_owner.get_or_null(mesh_rid);
+		if (!mesh || !mesh->surfaces || mesh->surface_count == 0) {
+			continue; // Freed or empty mesh — safely skipped.
+		}
+
+		for (uint32_t i = 0; i < mesh->surface_count; i++) {
+			Mesh::Surface *s = mesh->surfaces[i];
+			ERR_CONTINUE_MSG(s == nullptr, "build_pending_blas_surfaces: null surface at index " + itos(i));
+			if (!s->blas_pending) {
+				continue;
+			}
+			s->blas_pending = false;
+
+			if (s->vertex_count == 0 || !s->vertex_buffer.is_valid()) {
+				continue;
+			}
+
+			RD::VertexAttribute pos_attr;
+			pos_attr.location = 0;
+			pos_attr.offset = 0;
+			pos_attr.format = RD::DATA_FORMAT_R32G32B32_SFLOAT;
+			pos_attr.stride = s->vertex_buffer_size / s->vertex_count;
+
+			Vector<RD::VertexAttribute> position_attrs;
+			position_attrs.push_back(pos_attr);
+
+			RD::VertexFormatID pos_format = rd->vertex_format_create(position_attrs);
+			if (pos_format == RD::INVALID_FORMAT_ID) {
+				continue;
+			}
+			s->blas_vertex_array = rd->vertex_array_create(s->vertex_count, pos_format, { s->vertex_buffer });
+			if (!s->blas_vertex_array.is_valid()) {
+				continue;
+			}
+
+			RID index_arr = s->index_array;
+			s->blas = rd->blas_create(s->blas_vertex_array, index_arr, RD::ACCELERATION_STRUCTURE_GEOMETRY_OPAQUE, 0);
+			if (!s->blas.is_valid()) {
+				rd->free_rid(s->blas_vertex_array);
+				s->blas_vertex_array = RID();
+				continue;
+			}
+		}
+	}
+	blas_pending_rids.clear();
 }
 
 void MeshStorage::_update_dirty_multimeshes() {

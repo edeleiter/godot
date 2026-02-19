@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  test_shadow_caching.h                                                 */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,45 +28,57 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
+#pragma once
 
-#include "core/object/class_db.h"
+#include "core/os/os.h"
+#include "servers/rendering/renderer_scene_cull.h"
 
-#ifdef TOOLS_ENABLED
-#include "editor/claude_editor_plugin.h"
-#include "editor/claude_mcp_dock.h"
-#include "editor/plugins/editor_plugin.h"
-#include "mcp/godot_mcp_server.h"
-#include "util/mcp_scene_serializer.h"
-#ifdef WINDOWS_ENABLED
-#include "editor/claude_terminal_dock.h"
-#include "terminal/ansi_terminal_state.h"
-#include "terminal/con_pty_process.h"
-#endif
-#endif
+#include "tests/test_macros.h"
 
-void initialize_claude_module(ModuleInitializationLevel p_level) {
-#ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		GDREGISTER_CLASS(GodotMCPServer);
-		GDREGISTER_CLASS(MCPSceneSerializer);
-		GDREGISTER_INTERNAL_CLASS(ClaudeMCPDock);
-		GDREGISTER_CLASS(ClaudeEditorPlugin);
-#ifdef WINDOWS_ENABLED
-		GDREGISTER_CLASS(ConPtyProcess);
-		GDREGISTER_CLASS(AnsiTerminalState);
-		GDREGISTER_CLASS(TerminalView);
-		GDREGISTER_INTERNAL_CLASS(ClaudeTerminalDock);
-#endif
-		EditorPlugins::add_by_type<ClaudeEditorPlugin>();
-	}
-#endif
+namespace TestShadowCaching {
+
+TEST_CASE("[ShadowCaching] Instance is not static immediately after movement") {
+	RendererSceneCull::Instance instance;
+
+	// Set shadow_moved_msec to current time — instance just moved.
+	instance.shadow_moved_msec = OS::get_singleton()->get_ticks_msec();
+
+	CHECK_FALSE(instance.is_shadow_static());
 }
 
-void uninitialize_claude_module(ModuleInitializationLevel p_level) {
-#ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		// EditorPlugins handles cleanup automatically.
-	}
-#endif
+TEST_CASE("[ShadowCaching] Instance becomes static after threshold time") {
+	RendererSceneCull::Instance instance;
+
+	// Set shadow_moved_msec far enough in the past to exceed the threshold.
+	uint64_t threshold_msec = (uint64_t)(RendererSceneCull::Instance::SHADOW_STATIC_THRESHOLD_SEC * 1000.0);
+	uint64_t now = OS::get_singleton()->get_ticks_msec();
+	instance.shadow_moved_msec = now - threshold_msec - 1;
+
+	CHECK(instance.is_shadow_static());
 }
+
+TEST_CASE("[ShadowCaching] Static classification resets on transform change") {
+	RendererSceneCull::Instance instance;
+
+	uint64_t threshold_msec = (uint64_t)(RendererSceneCull::Instance::SHADOW_STATIC_THRESHOLD_SEC * 1000.0);
+	uint64_t now = OS::get_singleton()->get_ticks_msec();
+
+	// Simulate being static (moved long ago).
+	instance.shadow_moved_msec = now - threshold_msec - 1;
+	CHECK(instance.is_shadow_static());
+
+	// Simulate a transform change (moved just now).
+	instance.shadow_moved_msec = OS::get_singleton()->get_ticks_msec();
+
+	// Should no longer be static.
+	CHECK_FALSE(instance.is_shadow_static());
+}
+
+TEST_CASE("[ShadowCaching] Threshold value is reasonable") {
+	// The threshold should be around 0.5 seconds.
+	double threshold = RendererSceneCull::Instance::SHADOW_STATIC_THRESHOLD_SEC;
+	CHECK(threshold >= 0.1);
+	CHECK(threshold <= 2.0);
+}
+
+} // namespace TestShadowCaching

@@ -37,6 +37,7 @@
 #include "servers/rendering/renderer_rd/shaders/decal_data_inc.glsl.gen.h"
 #include "servers/rendering/renderer_rd/shaders/light_data_inc.glsl.gen.h"
 #include "servers/rendering/renderer_rd/shaders/scene_data_inc.glsl.gen.h"
+#include "servers/rendering/renderer_rd/storage_rd/mesh_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/rendering_server_default.h"
 #include "servers/rendering/shader_include_db.h"
@@ -1532,6 +1533,26 @@ void RendererSceneRenderRD::update() {
 	sky.update_dirty_skys();
 }
 
+void RendererSceneRenderRD::rt_register_mesh_instance(RID p_instance, RID p_mesh, const Transform3D &p_transform) {
+	if (!rt_scene_manager.is_enabled()) {
+		return;
+	}
+	// Store mesh RID; BLASes are resolved lazily per-surface at TLAS build time.
+	rt_scene_manager.register_instance(p_instance, p_mesh, p_transform);
+}
+
+void RendererSceneRenderRD::rt_unregister_instance(RID p_instance) {
+	rt_scene_manager.unregister_instance(p_instance);
+}
+
+void RendererSceneRenderRD::rt_update_instance_transform(RID p_instance, const Transform3D &p_transform) {
+	rt_scene_manager.update_instance_transform(p_instance, p_transform);
+}
+
+void RendererSceneRenderRD::rt_update() {
+	rt_scene_manager.update_tlas();
+}
+
 void RendererSceneRenderRD::set_time(double p_time, double p_step) {
 	time = p_time;
 	time_step = p_step;
@@ -1823,6 +1844,8 @@ RendererSceneRenderRD::~RendererSceneRenderRD() {
 	if (is_dynamic_gi_supported()) {
 		gi.free();
 	}
+
+	rt_scene_manager.cleanup();
 
 	if (is_volumetric_supported()) {
 		RendererRD::Fog::get_singleton()->free_fog_shader();

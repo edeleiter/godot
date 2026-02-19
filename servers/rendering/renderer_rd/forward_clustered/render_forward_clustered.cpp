@@ -42,6 +42,16 @@
 
 using namespace RendererSceneRenderImplementation;
 
+static void _filter_static_cached_shadows(LocalVector<int> &r_shadow_indices, const RendererSceneRender::RenderShadowData *p_render_shadows) {
+	uint32_t write_idx = 0;
+	for (uint32_t i = 0; i < r_shadow_indices.size(); i++) {
+		if (!p_render_shadows[r_shadow_indices[i]].use_static_cache) {
+			r_shadow_indices[write_idx++] = r_shadow_indices[i];
+		}
+	}
+	r_shadow_indices.resize(write_idx);
+}
+
 #define PRELOAD_PIPELINES_ON_SURFACE_CACHE_CONSTRUCTION 1
 
 #define FADE_ALPHA_PASS_THRESHOLD 0.999
@@ -1535,6 +1545,12 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 			}
 		}
 
+		// Remove static-cached shadows — their atlas textures persist from previous frames.
+		// Directional shadows are excluded: they use a separate atlas managed by
+		// LightStorage::update_directional_shadow_atlas() and are always re-rendered.
+		_filter_static_cached_shadows(p_render_data->cube_shadows, p_render_data->render_shadows);
+		_filter_static_cached_shadows(p_render_data->shadows, p_render_data->render_shadows);
+
 		RENDER_TIMESTAMP("Render OmniLight Shadows");
 		// Cube shadows are rendered in their own way.
 		for (const int &index : p_render_data->cube_shadows) {
@@ -1572,7 +1588,8 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 		}
 		//render positional shadows
 		for (uint32_t i = 0; i < p_render_data->shadows.size(); i++) {
-			_render_shadow_pass(p_render_data->render_shadows[p_render_data->shadows[i]].light, p_render_data->shadow_atlas, p_render_data->render_shadows[p_render_data->shadows[i]].pass, p_render_data->render_shadows[p_render_data->shadows[i]].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, i == 0, i == p_render_data->shadows.size() - 1, true, p_render_data->render_info, viewport_size, p_render_data->scene_data->cam_transform);
+			const RendererSceneRender::RenderShadowData &shadow = p_render_data->render_shadows[p_render_data->shadows[i]];
+			_render_shadow_pass(shadow.light, p_render_data->shadow_atlas, shadow.pass, shadow.instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, i == 0, i == p_render_data->shadows.size() - 1, true, p_render_data->render_info, viewport_size, p_render_data->scene_data->cam_transform);
 		}
 
 		_render_shadow_process();

@@ -1,5 +1,13 @@
 <Project>
   <ItemGroup>
+    <!-- Explicitly register the source generator analyzer DLL.
+         NuGet auto-discovery from analyzers/dotnet/cs/ doesn't always work
+         with local dev package sources (missing "analyzers" key in project.assets.json targets). -->
+    <Analyzer Include="$(MSBuildThisFileDirectory)..\analyzers\dotnet\cs\Godot.SourceGenerators.dll"
+              Condition="Exists('$(MSBuildThisFileDirectory)..\analyzers\dotnet\cs\Godot.SourceGenerators.dll')" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- $(GodotProjectDir) is defined by Godot.NET.Sdk -->
     <CompilerVisibleProperty Include="GodotDisabledSourceGenerators" />
     <CompilerVisibleProperty Include="GodotProjectDir" />

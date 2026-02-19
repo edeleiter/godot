@@ -701,22 +701,14 @@ public:
 
 	struct AccelerationStructureInfo {
 		VkAccelerationStructureKHR vk_acceleration_structure = VK_NULL_HANDLE;
-		// Buffer used for the structure
 		RDD::BufferID buffer;
-
-		// Alignment of the scratch buffer for building the structure
-		uint32_t scratch_alignment;
-		// Size of the scratch buffer for building the structure
-		uint32_t scratch_size;
-
-		// Buffer used for instances in a TLAS
+		uint32_t scratch_alignment = 0;
+		uint32_t scratch_size = 0;
 		RDD::BufferID instances_buffer;
-
-		// Required for building
-		VkAccelerationStructureGeometryKHR geometry;
+		VkAccelerationStructureGeometryKHR geometry = {};
 		LocalVector<VkAccelerationStructureInstanceKHR> instances;
-		VkAccelerationStructureBuildGeometryInfoKHR build_info;
-		VkAccelerationStructureBuildRangeInfoKHR range_info;
+		VkAccelerationStructureBuildGeometryInfoKHR build_info = {};
+		VkAccelerationStructureBuildRangeInfoKHR range_info = {};
 	};
 
 	virtual AccelerationStructureID blas_create(BufferID p_vertex_buffer, uint64_t p_vertex_offset, VertexFormatID p_vertex_format, uint32_t p_vertex_count, uint32_t p_position_attribute_location, BufferID p_index_buffer, IndexBufferFormat p_index_format, uint64_t p_index_offset_bytes, uint32_t p_index_count, BitField<AccelerationStructureGeometryBits> p_geometry_bits) override final;
@@ -835,7 +827,9 @@ private:
 			ShaderInfo,
 			UniformSetInfo,
 			RenderPassInfo,
-			CommandBufferInfo>;
+			CommandBufferInfo,
+			AccelerationStructureInfo,
+			RaytracingPipelineInfo>;
 	PagedAllocator<VersatileResource, true> resources_allocator;
 
 	/******************/

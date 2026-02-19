@@ -31,6 +31,7 @@
 #pragma once
 
 #include "core/math/dynamic_bvh.h"
+#include "core/os/os.h"
 #include "core/math/transform_interpolator.h"
 #include "core/templates/bin_sorted_array.h"
 #include "core/templates/local_vector.h"
@@ -428,6 +429,14 @@ public:
 		bool baked_light : 1; // This flag is only to know if it actually did use baked light.
 		bool dynamic_gi : 1; // Same as above for dynamic objects.
 		bool redraw_if_visible : 1;
+
+		// Shadow caching: track whether this instance is a static shadow caster.
+		// Uses wall-clock time so the threshold is frame-rate independent.
+		uint64_t shadow_moved_msec = 0;
+		static constexpr double SHADOW_STATIC_THRESHOLD_SEC = 0.5;
+		bool is_shadow_static() const {
+			return (OS::get_singleton()->get_ticks_msec() - shadow_moved_msec) >= (uint64_t)(SHADOW_STATIC_THRESHOLD_SEC * 1000.0);
+		}
 
 		Instance *lightmap = nullptr;
 		Rect2 lightmap_uv_scale;

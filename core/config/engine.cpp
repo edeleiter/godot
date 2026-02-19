@@ -119,6 +119,18 @@ uint64_t Engine::get_frames_drawn() {
 	return frames_drawn;
 }
 
+void Engine::push_iteration() {
+	_iteration_depth++;
+}
+
+void Engine::pop_iteration() {
+	_iteration_depth--;
+}
+
+int Engine::get_iteration_depth() const {
+	return _iteration_depth;
+}
+
 void Engine::set_frame_delay(uint32_t p_msec) {
 	_frame_delay = p_msec;
 }

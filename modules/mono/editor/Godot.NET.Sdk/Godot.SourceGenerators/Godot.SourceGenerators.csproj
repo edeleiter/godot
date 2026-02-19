@@ -21,6 +21,9 @@
     <!-- Do not include the generator as a lib dependency -->
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <!-- Declare this as an analyzer package so NuGet populates "analyzers"
+         in project.assets.json and the compiler loads the generator DLL. -->
+    <PackageType>Analyzer</PackageType>
   </PropertyGroup>
   <!-- Analyzer release tracking -->
   <ItemGroup>

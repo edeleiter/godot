@@ -2150,6 +2150,12 @@ void LightStorage::_update_shadow_atlas(ShadowAtlas *shadow_atlas) {
 		Vector<RID> fb_tex;
 		fb_tex.push_back(shadow_atlas->depth);
 		shadow_atlas->fb = RD::get_singleton()->framebuffer_create(fb_tex);
+
+		// Create matching static cache depth texture for shadow caching.
+		shadow_atlas->depth_static = RD::get_singleton()->texture_create(tf, RD::TextureView());
+		Vector<RID> fb_static_tex;
+		fb_static_tex.push_back(shadow_atlas->depth_static);
+		shadow_atlas->fb_static = RD::get_singleton()->framebuffer_create(fb_static_tex);
 	}
 }
 
@@ -2164,9 +2170,21 @@ void LightStorage::shadow_atlas_set_size(RID p_atlas, int p_size, bool p_16_bits
 	}
 
 	// erasing atlas
+	if (shadow_atlas->fb.is_valid()) {
+		RD::get_singleton()->free_rid(shadow_atlas->fb);
+		shadow_atlas->fb = RID();
+	}
 	if (shadow_atlas->depth.is_valid()) {
 		RD::get_singleton()->free_rid(shadow_atlas->depth);
 		shadow_atlas->depth = RID();
+	}
+	if (shadow_atlas->fb_static.is_valid()) {
+		RD::get_singleton()->free_rid(shadow_atlas->fb_static);
+		shadow_atlas->fb_static = RID();
+	}
+	if (shadow_atlas->depth_static.is_valid()) {
+		RD::get_singleton()->free_rid(shadow_atlas->depth_static);
+		shadow_atlas->depth_static = RID();
 	}
 	for (int i = 0; i < 4; i++) {
 		//clear subdivisions
@@ -2440,6 +2458,10 @@ bool LightStorage::shadow_atlas_update_light(RID p_atlas, RID p_light_instance, 
 
 		if (!should_realloc) {
 			shadow_atlas->quadrants[old_quadrant].shadows.write[old_shadow].version = p_light_version;
+			// Invalidate static cache when the light version changes (light moved/changed).
+			if (should_redraw) {
+				shadow_atlas->quadrants[old_quadrant].shadows.write[old_shadow].static_cache_valid = false;
+			}
 			//already existing, see if it should redraw or it's just OK
 			return should_redraw;
 		}
@@ -2478,6 +2500,7 @@ bool LightStorage::shadow_atlas_update_light(RID p_atlas, RID p_light_instance, 
 		sh->owner = p_light_instance;
 		sh->alloc_tick = tick;
 		sh->version = p_light_version;
+		sh->static_cache_valid = false;
 
 		if (is_omni) {
 			new_key |= OMNI_LIGHT_FLAG;
@@ -2518,6 +2541,7 @@ void LightStorage::_shadow_atlas_invalidate_shadow(ShadowAtlas::Quadrant::Shadow
 		p_shadow_atlas->shadow_owners.erase(p_shadow->owner);
 		p_shadow->version = 0;
 		p_shadow->owner = RID();
+		p_shadow->static_cache_valid = false;
 		sli->shadow_atlases.erase(p_atlas);
 	}
 }

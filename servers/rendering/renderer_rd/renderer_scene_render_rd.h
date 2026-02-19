@@ -44,6 +44,7 @@
 #include "servers/rendering/renderer_rd/effects/tone_mapper.h"
 #include "servers/rendering/renderer_rd/effects/vrs.h"
 #include "servers/rendering/renderer_rd/environment/gi.h"
+#include "servers/rendering/renderer_rd/environment/rt_scene_manager.h"
 #include "servers/rendering/renderer_rd/environment/sky.h"
 #include "servers/rendering/renderer_rd/storage_rd/light_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_data_rd.h"
@@ -121,6 +122,8 @@ protected:
 
 	RendererRD::SkyRD sky;
 	RendererRD::GI gi;
+
+	RTSceneManager rt_scene_manager;
 
 	virtual void _update_shader_quality_settings() {}
 	static bool _debug_draw_can_use_effects(RS::ViewportDebugDraw p_debug_draw);
@@ -332,6 +335,11 @@ public:
 	virtual bool free(RID p_rid) override;
 
 	virtual void update() override;
+
+	virtual void rt_register_mesh_instance(RID p_instance, RID p_mesh, const Transform3D &p_transform) override;
+	virtual void rt_unregister_instance(RID p_instance) override;
+	virtual void rt_update_instance_transform(RID p_instance, const Transform3D &p_transform) override;
+	virtual void rt_update() override;
 
 	virtual void set_debug_draw_mode(RS::ViewportDebugDraw p_debug_draw) override;
 	_FORCE_INLINE_ RS::ViewportDebugDraw get_debug_draw_mode() const {

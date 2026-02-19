@@ -158,6 +158,54 @@ Complete public API with RID-based resource management:
 
 **Critical finding: The entire RT infrastructure is complete but has ZERO integration with the rendering pipeline.** No BLAS/TLAS is ever built for scene geometry. No RT shader is compiled. No rays are traced for GI, reflections, shadows, or AO.
 
+#### 2.6.1 Ray Query Gap
+
+The `ray_query_support` field is hardcoded to `false` at `rendering_device_driver_vulkan.h:158`. While the `SUPPORTS_RAY_QUERY` check at `rendering_device.cpp:7242` is correctly wired to return `acceleration_structure_support && ray_query_support`, it always evaluates to false because:
+
+1. `VK_KHR_RAY_QUERY_EXTENSION_NAME` is not registered in `_initialize_device_extensions()` (lines 562-615 of the .cpp file only register `VK_KHR_ACCELERATION_STRUCTURE`, `VK_KHR_DEFERRED_HOST_OPERATIONS`, and `VK_KHR_RAY_TRACING_PIPELINE`)
+2. `VkPhysicalDeviceRayQueryFeaturesKHR` is not queried in the device feature chain (lines 820-927 chain acceleration structure and raytracing pipeline features but not ray query)
+3. No code path ever sets `ray_query_support = true`
+
+**Impact:** Ray query (`gl_RayQueryEXT`) is the preferred approach for integrating RT into existing raster shaders (compute or fragment). Unlike the full raytracing pipeline, ray query doesn't require a separate shader binding table or pipeline — it can be used inline in any shader stage. This makes it ideal for RT AO, RT shadows, and hybrid rendering approaches.
+
+#### 2.6.2 Bindless Resource Gap
+
+No descriptor indexing infrastructure exists. `VK_EXT_DESCRIPTOR_INDEXING` is not registered. Only `shaderSampledImageArrayNonUniformIndexing` is checked (macOS path, line 931), and solely for determining MoltenVK compatibility.
+
+**Impact on RT phases:**
+- **Not needed for AO (Phase C):** AO only needs hit/miss determination, no material access
+- **Not needed for shadows (Phase E):** Shadow rays only test occlusion
+- **Required for reflections (Phase B):** Closest-hit shaders need arbitrary texture access for material evaluation
+- **Required for full GI (Phase D):** Second-bounce computation needs material properties at hit points
+
+#### 2.6.3 TLAS Instance Buffer Analysis
+
+All `VkAccelerationStructureInstanceKHR` fields are exposed at `rendering_device_driver_vulkan.cpp` lines 6222-6226 via `tlas_instances_buffer_fill()`, but with hardcoded values:
+- `instanceCustomIndex = i` (sequential, no application-defined mapping)
+- `mask = 0xFF` (all bits set, no per-instance filtering)
+- `instanceShaderBindingTableRecordOffset = 0` (single hit group, no per-material dispatch)
+
+**Impact:** Adequate for AO and shadow phases (which only need geometry hit testing). Needs parameterization for multi-material RT (reflections, GI) where different hit groups or instance masks are required.
+
+#### 2.6.4 SBT Management Completeness
+
+`_raytracing_pipeline_stb_create()` at lines 6422-6493 fully implements Shader Binding Table creation:
+- Correct alignment via `_align_up()` to `shaderGroupHandleAlignment` and `shaderGroupBaseAlignment`
+- Separate raygen/hit/miss/callable regions with proper stride calculation
+- Buffer creation with `BUFFER_USAGE_SHADER_BINDING_TABLE_BIT | BUFFER_USAGE_TRANSFER_DST_BIT`
+- Shader group handle extraction via `vkGetRayTracingShaderGroupHandlesKHR`
+- Proper `VkStridedDeviceAddressRegionKHR` struct population for `vkCmdTraceRaysKHR`
+
+**Status:** Fully production-ready. No modifications needed for initial RT integration.
+
+#### 2.6.5 Vertex Buffer Flag Gap
+
+`mesh_add_surface()` at `mesh_storage.cpp:388-391` creates vertex buffers with storage flags (`BUFFER_CREATION_STORAGE_BIT` when attributes are used) but WITHOUT:
+- `BUFFER_CREATION_DEVICE_ADDRESS_BIT` — required by `buffer_get_device_address()` which `blas_create()` calls
+- `BUFFER_CREATION_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT` — required by Vulkan spec for buffers used as BLAS build inputs
+
+**Fix required:** OR these RT-specific flags into the existing buffer creation bits when RT is available. Same applies to index buffers. Without this fix, any attempt to build BLAS from mesh vertex/index data will fail validation or crash.
+
 ### 2.7 Post-Processing
 
 **File:** `servers/rendering/renderer_rd/effects/`
@@ -262,6 +310,38 @@ Complete public API with RID-based resource management:
 - **Thin geometry detection** (new in 5.7) -- improved handling of foliage/wireframe elements
 - Better motion vector integration than generic FSR/DLSS
 - Also supports DLSS/FSR as plugin alternatives
+
+### 3.8 World Partition (Production)
+
+- Streaming open world system with automatic level-of-detail streaming
+- Data layers for organizing world content (landscape, foliage, audio)
+- Runtime hash grid for efficient spatial queries and streaming decisions
+- One-file-per-actor system for collaborative editing and granular version control
+- HLOD (Hierarchical LOD) system for distant geometry simplification
+
+### 3.9 Niagara GPU Particles (Production)
+
+- GPU-driven particle simulation via compute shaders
+- Data interface system for particles interacting with Nanite geometry, fluids, audio
+- Scalability via effect types (spawn rate, quality levels per platform)
+- Support for mesh particles, ribbons, sprites, and light renderers
+- Event-driven spawning: particles can trigger other particle systems
+
+### 3.10 Hair & Strand Rendering (Production)
+
+- Groom system for strand-based hair, fur, and fiber rendering
+- Alembic-based groom import with guide/interpolation curves
+- Physics simulation with per-strand collision and wind response
+- LOD system: strands → cards → mesh at distance
+- Deep integration with Niagara for custom hair dynamics
+
+### 3.11 Virtual Textures (Production)
+
+- Runtime Virtual Textures (RVT): procedural textures streamed tile-by-tile from GPU
+- Streaming Virtual Textures (SVT): disk-resident textures with on-demand tile streaming
+- Tile-based feedback system: only resident tiles that are actually sampled
+- Landscape material blending via RVT eliminates texture splatting cost
+- Reduces VRAM pressure for large open worlds with many unique textures
 
 ---
 
@@ -524,6 +604,35 @@ Animated, LOD-streamed vegetation at scale.
 - Voxel-based distance representations for canopy masses
 - Assembly system for instanced foliage management
 - **Stretch goal** -- requires Tier 3 completion
+
+### Revised Recommendations (Post-Architecture Review)
+
+#### Phase Reordering
+The original plan ordered RT phases as A → B (Reflections) → C (AO) → D (GI) → E (Shadows). Based on architecture review, the recommended order is now:
+
+**A (BLAS/TLAS) → C (AO) → E (Shadows) → B (Reflections) → D (GI)**
+
+Rationale: AO and shadows only need hit/miss determination (no material access, no bindless resources). Reflections and GI require closest-hit material evaluation, which depends on descriptor indexing infrastructure not yet present.
+
+#### Shadow Map Caching (New Tier 1 Item)
+Shadow map static/dynamic caching added as a Tier 1 recommendation alongside GPU-driven rendering and RT integration. Static shadow casters (objects that haven't moved for ~0.5s) are cached in a separate depth buffer. Only dynamic casters are re-rendered per frame. Final shadow is composited via min-depth. Expected to reduce shadow rendering cost by 40-60% for scenes with mostly static geometry. Lower risk than full Virtual Shadow Maps.
+
+#### Effort Estimate Revision
+The original document stated "70-80% reduced effort" for RT integration based on the existing Vulkan API. Architecture review reveals the actual reduction is closer to **~20-30%**. While the driver-level API is complete, there is:
+- Zero scene management (no BLAS auto-generation, no TLAS maintenance)
+- Zero shader infrastructure (no RT shaders written)
+- Zero pipeline integration (no hooks in render loop)
+- Missing prerequisites (ray query disabled, vertex buffer flags missing)
+
+#### Open Questions Resolved
+
+1. **"Can SDFGI and RT coexist?"** — Yes. Hybrid approach: SDFGI for far-field (beyond RT range), RT for near-field accuracy. The `gi.h/.cpp` architecture supports multiple GI sources blended per pixel.
+
+2. **"What is the TLAS rebuild cost?"** — Estimated <1ms for 1000-object scenes based on Vulkan spec guarantees and GPU vendor benchmarks. Incremental updates (refit) can reduce this further for scenes where only transforms change.
+
+3. **"Is the forward mobile renderer in scope?"** — No. `forward_mobile/render_forward_mobile.cpp` targets GLES3/Vulkan mobile and lacks the compute shader infrastructure needed for RT. Initial RT work targets forward clustered only.
+
+4. **"What about D3D12 RT?"** — All D3D12 RT functions are stubs. DXR support would require a separate implementation effort. Vulkan-only for initial phases.
 
 ---
 

@@ -595,6 +595,7 @@ void RendererSceneCull::instance_set_base(RID p_instance, RID p_base) {
 			case RS::INSTANCE_PARTICLES: {
 				InstanceGeometryData *geom = static_cast<InstanceGeometryData *>(instance->base_data);
 				scene_render->geometry_instance_free(geom->geometry_instance);
+				scene_render->rt_unregister_instance(p_instance);
 			} break;
 			case RS::INSTANCE_LIGHT: {
 				InstanceLightData *light = static_cast<InstanceLightData *>(instance->base_data);
@@ -740,6 +741,11 @@ void RendererSceneCull::instance_set_base(RID p_instance, RID p_base) {
 					ERR_CONTINUE(dep_instance->array_index == -1);
 					ERR_CONTINUE(dep_instance->scenario->instance_data[dep_instance->array_index].parent_array_index != -1);
 					dep_instance->scenario->instance_data[dep_instance->array_index].parent_array_index = instance->array_index;
+				}
+
+				// Register with RT scene manager for acceleration structure tracking.
+				if (instance->base_type == RS::INSTANCE_MESH) {
+					scene_render->rt_register_mesh_instance(p_instance, p_base, instance->transform);
 				}
 			} break;
 			case RS::INSTANCE_PARTICLES_COLLISION: {
@@ -994,6 +1000,13 @@ void RendererSceneCull::instance_set_transform(RID p_instance, const Transform3D
 
 #endif
 	instance->transform = p_transform;
+
+	// Shadow caching: reset static classification on transform change.
+	instance->shadow_moved_msec = OS::get_singleton()->get_ticks_msec();
+
+	// Update RT scene manager transform.
+	scene_render->rt_update_instance_transform(p_instance, p_transform);
+
 	_instance_queue_update(instance, true);
 }
 
@@ -2411,6 +2424,8 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 						light_culler->cull_regular_light(instance_shadow_cull_result);
 					}
 
+					bool all_casters_static = true;
+
 					for (int j = 0; j < (int)instance_shadow_cull_result.size(); j++) {
 						Instance *instance = instance_shadow_cull_result[j];
 						if (!instance->visible || !((1 << instance->base_type) & RS::INSTANCE_GEOMETRY_MASK) || !static_cast<InstanceGeometryData *>(instance->base_data)->can_cast_shadows || !(p_visible_layers & instance->layer_mask & RSG::light_storage->light_get_shadow_caster_mask(p_instance->base))) {
@@ -2423,6 +2438,10 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 							if (instance->mesh_instance.is_valid()) {
 								RSG::mesh_storage->mesh_instance_check_for_update(instance->mesh_instance);
 							}
+
+							if (!instance->is_shadow_static()) {
+								all_casters_static = false;
+							}
 						}
 
 						shadow_data.instances.push_back(static_cast<InstanceGeometryData *>(instance->base_data)->geometry_instance);
@@ -2433,6 +2452,7 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 					RSG::light_storage->light_instance_set_shadow_transform(light->instance, Projection(), light_transform, radius, 0, i, 0);
 					shadow_data.light = light->instance;
 					shadow_data.pass = i;
+					shadow_data.use_static_cache = all_casters_static && shadow_data.instances.size() > 0;
 				}
 			} else { //shadow cube
 
@@ -2494,6 +2514,8 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 						light_culler->cull_regular_light(instance_shadow_cull_result);
 					}
 
+					bool all_casters_static = true;
+
 					for (int j = 0; j < (int)instance_shadow_cull_result.size(); j++) {
 						Instance *instance = instance_shadow_cull_result[j];
 						if (!instance->visible || !((1 << instance->base_type) & RS::INSTANCE_GEOMETRY_MASK) || !static_cast<InstanceGeometryData *>(instance->base_data)->can_cast_shadows || !(p_visible_layers & instance->layer_mask & RSG::light_storage->light_get_shadow_caster_mask(p_instance->base))) {
@@ -2505,6 +2527,10 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 							if (instance->mesh_instance.is_valid()) {
 								RSG::mesh_storage->mesh_instance_check_for_update(instance->mesh_instance);
 							}
+
+							if (!instance->is_shadow_static()) {
+								all_casters_static = false;
+							}
 						}
 
 						shadow_data.instances.push_back(static_cast<InstanceGeometryData *>(instance->base_data)->geometry_instance);
@@ -2515,6 +2541,7 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 
 					shadow_data.light = light->instance;
 					shadow_data.pass = i;
+					shadow_data.use_static_cache = all_casters_static && shadow_data.instances.size() > 0;
 				}
 
 				//restore the regular DP matrix
@@ -2562,6 +2589,8 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 				light_culler->cull_regular_light(instance_shadow_cull_result);
 			}
 
+			bool all_casters_static = true;
+
 			for (int j = 0; j < (int)instance_shadow_cull_result.size(); j++) {
 				Instance *instance = instance_shadow_cull_result[j];
 				if (!instance->visible || !((1 << instance->base_type) & RS::INSTANCE_GEOMETRY_MASK) || !static_cast<InstanceGeometryData *>(instance->base_data)->can_cast_shadows || !(p_visible_layers & instance->layer_mask & RSG::light_storage->light_get_shadow_caster_mask(p_instance->base))) {
@@ -2574,6 +2603,10 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 					if (instance->mesh_instance.is_valid()) {
 						RSG::mesh_storage->mesh_instance_check_for_update(instance->mesh_instance);
 					}
+
+					if (!instance->is_shadow_static()) {
+						all_casters_static = false;
+					}
 				}
 				shadow_data.instances.push_back(static_cast<InstanceGeometryData *>(instance->base_data)->geometry_instance);
 			}
@@ -2583,6 +2616,7 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 			RSG::light_storage->light_instance_set_shadow_transform(light->instance, cm, light_transform, radius, 0, 0, 0);
 			shadow_data.light = light->instance;
 			shadow_data.pass = 0;
+			shadow_data.use_static_cache = all_casters_static && shadow_data.instances.size() > 0;
 
 		} break;
 	}
@@ -4243,6 +4277,7 @@ void RendererSceneCull::update() {
 		s->indexers[Scenario::INDEXER_VOLUMES].optimize_incremental(indexer_update_iterations);
 	}
 	scene_render->update();
+	scene_render->rt_update();
 	update_dirty_instances();
 	render_particle_colliders();
 }

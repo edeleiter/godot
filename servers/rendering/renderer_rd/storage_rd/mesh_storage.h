@@ -150,6 +150,11 @@ private:
 			uint64_t particles_render_pass = 0;
 
 			RID uniform_set;
+
+			// Ray tracing acceleration structure (bottom-level).
+			RID blas;
+			RID blas_vertex_array; // Kept alive for BLAS reference.
+			bool blas_pending = false; // Deferred BLAS creation needed.
 		};
 
 		uint32_t blend_shape_count = 0;
@@ -175,9 +180,13 @@ private:
 		String path;
 
 		Dependency dependency;
+
+		Mesh() {}
 	};
 
 	mutable RID_Owner<Mesh, true> mesh_owner;
+
+	HashSet<RID> blas_pending_rids;
 
 	/* Mesh Instance API */
 
@@ -430,8 +439,17 @@ public:
 		Mesh *mesh = mesh_owner.get_or_null(p_mesh);
 		ERR_FAIL_NULL_V(mesh, nullptr);
 		ERR_FAIL_UNSIGNED_INDEX_V(p_surface_index, mesh->surface_count, nullptr);
+		ERR_FAIL_NULL_V(mesh->surfaces, nullptr);
 
 		return mesh->surfaces[p_surface_index];
+	}
+
+	_FORCE_INLINE_ RID mesh_surface_get_blas(RID p_mesh, uint32_t p_surface_index) {
+		Mesh *mesh = mesh_owner.get_or_null(p_mesh);
+		ERR_FAIL_NULL_V(mesh, RID());
+		ERR_FAIL_UNSIGNED_INDEX_V(p_surface_index, mesh->surface_count, RID());
+		ERR_FAIL_NULL_V(mesh->surfaces, RID());
+		return mesh->surfaces[p_surface_index]->blas;
 	}
 
 	_FORCE_INLINE_ RID mesh_get_shadow_mesh(RID p_mesh) {
@@ -687,6 +705,8 @@ public:
 	virtual AABB _multimesh_get_aabb(RID p_multimesh) override;
 
 	virtual MultiMeshInterpolator *_multimesh_get_interpolator(RID p_multimesh) const override;
+
+	void build_pending_blas_surfaces();
 
 	void _update_dirty_multimeshes();
 	void _multimesh_get_motion_vectors_offsets(RID p_multimesh, uint32_t &r_current_offset, uint32_t &r_prev_offset);

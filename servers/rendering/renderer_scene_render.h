@@ -56,6 +56,13 @@ public:
 	virtual void geometry_instance_free(RenderGeometryInstance *p_geometry_instance) = 0;
 	virtual uint32_t geometry_instance_get_pair_mask() = 0;
 
+	/* RT Scene Management */
+
+	virtual void rt_register_mesh_instance(RID p_instance, RID p_mesh, const Transform3D &p_transform) {}
+	virtual void rt_unregister_instance(RID p_instance) {}
+	virtual void rt_update_instance_transform(RID p_instance, const Transform3D &p_transform) {}
+	virtual void rt_update() {}
+
 	/* Lights matched up to Geometry Instances */
 	virtual uint32_t get_max_lights_total() = 0;
 	virtual uint32_t get_max_lights_per_mesh() = 0;
@@ -284,6 +291,7 @@ public:
 		RID light;
 		int pass = 0;
 		PagedArray<RenderGeometryInstance *> instances;
+		bool use_static_cache = false; // Skip static re-render if cache valid.
 	};
 
 	struct RenderSDFGIData {

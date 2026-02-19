@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  rt_scene_manager.h                                                    */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,45 +28,46 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
+#pragma once
 
-#include "core/object/class_db.h"
+#include "core/templates/hash_map.h"
+#include "core/templates/hash_set.h"
+#include "core/templates/local_vector.h"
+#include "servers/rendering/rendering_device.h"
 
-#ifdef TOOLS_ENABLED
-#include "editor/claude_editor_plugin.h"
-#include "editor/claude_mcp_dock.h"
-#include "editor/plugins/editor_plugin.h"
-#include "mcp/godot_mcp_server.h"
-#include "util/mcp_scene_serializer.h"
-#ifdef WINDOWS_ENABLED
-#include "editor/claude_terminal_dock.h"
-#include "terminal/ansi_terminal_state.h"
-#include "terminal/con_pty_process.h"
-#endif
-#endif
+class RTSceneManager {
+public:
+	RTSceneManager();
+	~RTSceneManager();
 
-void initialize_claude_module(ModuleInitializationLevel p_level) {
-#ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		GDREGISTER_CLASS(GodotMCPServer);
-		GDREGISTER_CLASS(MCPSceneSerializer);
-		GDREGISTER_INTERNAL_CLASS(ClaudeMCPDock);
-		GDREGISTER_CLASS(ClaudeEditorPlugin);
-#ifdef WINDOWS_ENABLED
-		GDREGISTER_CLASS(ConPtyProcess);
-		GDREGISTER_CLASS(AnsiTerminalState);
-		GDREGISTER_CLASS(TerminalView);
-		GDREGISTER_INTERNAL_CLASS(ClaudeTerminalDock);
-#endif
-		EditorPlugins::add_by_type<ClaudeEditorPlugin>();
-	}
-#endif
-}
+	void cleanup();
 
-void uninitialize_claude_module(ModuleInitializationLevel p_level) {
-#ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		// EditorPlugins handles cleanup automatically.
-	}
-#endif
-}
+	void register_instance(RID p_instance, RID p_mesh, const Transform3D &p_transform);
+	void unregister_instance(RID p_instance);
+	void update_instance_transform(RID p_instance, const Transform3D &p_transform);
+
+	// Call once per frame to rebuild TLAS if dirty.
+	void update_tlas();
+
+	RID get_tlas() const { return tlas; }
+	bool is_valid() const { return tlas.is_valid() && !instances.is_empty(); }
+	bool is_enabled() const { return rt_available; }
+
+	uint32_t get_instance_count() const { return instances.size(); }
+
+private:
+	struct InstanceData {
+		RID mesh;
+		Transform3D transform;
+		bool dirty = true;
+	};
+
+	HashMap<RID, InstanceData> instances;
+	HashSet<RID> built_blases; // Tracks which BLAS RIDs have been GPU-built.
+	RID tlas;
+	RID instances_buffer;
+	uint32_t instances_buffer_size = 0;
+	bool tlas_dirty = true;
+	bool rt_available = false;
+	bool is_updating_tlas = false;
+};

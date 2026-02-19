@@ -107,6 +107,7 @@ private:
 	bool frame_server_synced = false;
 
 	bool freeze_time_scale = false;
+	int _iteration_depth = 0; // Nesting depth of Main::iteration() calls (> 1 = reentrant).
 
 protected:
 	void _update_time_scale();
@@ -218,6 +219,9 @@ public:
 	int32_t get_gpu_index() const;
 
 	void increment_frames_drawn();
+	void push_iteration();
+	void pop_iteration();
+	int get_iteration_depth() const;
 	bool notify_frame_server_synced();
 
 	void set_freeze_time_scale(bool p_frozen);

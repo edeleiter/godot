@@ -43,6 +43,10 @@ void ClaudeEditorPlugin::_bind_methods() {
 }
 
 ClaudeEditorPlugin::ClaudeEditorPlugin() {
+	if (!EditorSettings::get_singleton()) {
+		return; // Headless mode (e.g., --generate-mono-glue) — no editor UI.
+	}
+
 	mcp_server.instantiate();
 
 	// Register editor settings.

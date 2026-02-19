@@ -1306,7 +1306,9 @@ private:
 		RID instances_buffer;
 	};
 
-	RID_Owner<InstancesBuffer, true> instances_buffer_owner;
+	// Thread-safety disabled: InstancesBuffer is only accessed from the render thread
+	// via RTSceneManager::update_tlas() during the per-frame update.
+	RID_Owner<InstancesBuffer> instances_buffer_owner;
 	RID_Owner<AccelerationStructure> acceleration_structure_owner;
 
 public:

@@ -2,37 +2,42 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## WSL2 Environment Setup
+## Build Environment
 
-The repo lives on an NTFS mount (`/mnt/f/godot`). NTFS under WSL2 is case-insensitive, which breaks Python packages like SCons. The Python venv must live on the native Linux filesystem.
+**Primary: Git Bash on Windows.** The build scripts and scons work natively with Python/uv on Windows. The scripts auto-create a `.venv` in the repo root if needed.
+
+Prerequisites: Python 3.8+, [uv](https://docs.astral.sh/uv/), .NET 8 SDK (for C# builds), Visual Studio Build Tools or MinGW.
+
+**Secondary: WSL2.** If cross-compiling from WSL2, the repo lives on an NTFS mount (`/mnt/f/godot`). NTFS is case-insensitive, which breaks Python packages like SCons — the venv must live on native Linux FS:
 
 ```bash
-# System dependencies (one-time setup)
-sudo apt-get install -y pkg-config mingw-w64
-
-# Switch MinGW to posix threads (required by Godot)
-sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
-sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
-
-# Create venv on native Linux FS (one-time setup)
 uv venv ~/.venvs/godot
-
-# Install dependencies
 VIRTUAL_ENV=~/.venvs/godot uv pip install scons
-
-# Activate before building
 source ~/.venvs/godot/bin/activate
 ```
 
 ## Build Commands
 
-Godot uses SCons (Python-based build system). Requires Python 3.8+ and SCons 4.0+.
+### Full Build with C# Support
+
+Use the build scripts for the complete 3-step process (scons → glue generation → C# assemblies):
+
+```bash
+./build_dotnet_editor.sh              # Production editor with C#
+./build_dotnet_editor_dev.sh          # Dev editor with C# (debug symbols + extra checks)
+```
+
+These scripts handle everything: venv setup, scons build, glue generation, and C# assembly building with `--push-nupkgs-local` so NuGet can resolve the dev SDK packages.
+
+### C++ Only (scons)
+
+For C++-only iteration (skips C# glue and assembly steps):
 
 ```bash
 # Build editor (default target)
-scons platform=windows d3d12=no   # Windows (cross-compile from WSL2, no D3D12 SDK)
-scons platform=linuxbsd            # Linux/BSD
-scons platform=macos               # macOS
+scons platform=windows d3d12=no        # Windows (no D3D12 SDK)
+scons platform=linuxbsd                 # Linux/BSD
+scons platform=macos                    # macOS
 
 # Build with specific target
 scons platform=<platform> target=editor           # Editor (default)
@@ -47,15 +52,33 @@ scons platform=<platform> compiledb=yes           # Generate compile_commands.js
 scons platform=<platform> vsproj=yes              # Generate Visual Studio solution
 
 # Faster builds
-scons platform=<platform> scu_build=yes           # Single compilation unit (faster, uses more RAM)
-scons platform=<platform> ninja=yes               # Use ninja backend
+scons platform=<platform> scu_build=yes                    # Single compilation unit (fewer compiler invocations)
+scons platform=<platform> fast_unsafe=yes                   # Faster incremental builds (less rebuild certainty)
+scons platform=<platform> cpp_compiler_launcher=ccache      # Use ccache for compilation caching
+scons platform=<platform> num_jobs=8                        # Parallel jobs (defaults to CPU count - 1)
 
 # Build with tests
 scons platform=<platform> tests=yes
 
 # Dev mode shorthand (verbose=yes warnings=extra werror=yes tests=yes strict_checks=yes)
 scons platform=<platform> dev_mode=yes
+
+# Disable subsystems for faster builds when working on specific areas
+scons platform=<platform> disable_3d=yes                    # Skip 3D engine
+scons platform=<platform> disable_advanced_gui=yes          # Skip advanced GUI nodes
+scons platform=<platform> module_mono_enabled=no            # Skip C# support
 ```
+
+### C# Project Workflow
+
+After a full build, C# projects (like `demo/`) can use `dotnet build` directly. The build scripts register dev packages via `--push-nupkgs-local`, and `demo/NuGet.config` points at `bin/GodotSharp/Tools/nupkgs/` so NuGet can resolve `Godot.NET.Sdk/4.7.0-dev`.
+
+If `dotnet build` fails with "Could not resolve SDK", rebuild the assemblies:
+```bash
+./build_dotnet_editor_dev.sh   # or just re-run Step 3 from the script
+```
+
+See `modules/mono/README.md` for full NuGet and assembly details.
 
 ## Running Tests
 
@@ -77,6 +100,22 @@ scons platform=<platform> tests=yes
 
 Create new test files using: `python tests/create_test.py ClassName path/relative/to/tests`
 
+Tests live in `tests/core/`, `tests/scene/`, `tests/servers/` mirroring the source layout. Each test is a header included by `tests/test_main.cpp`. Test pattern:
+
+```cpp
+#include "tests/test_macros.h"
+
+namespace TestMyClass {
+
+TEST_CASE("[MyClass] Description") {
+    MyClass obj;
+    CHECK(obj.method() == expected);
+    CHECK_MESSAGE(obj.other() == val, "Descriptive failure message.");
+}
+
+} // namespace TestMyClass
+```
+
 ## Architecture Overview
 
 ### Core Directory Structure
@@ -93,30 +132,96 @@ Create new test files using: `python tests/create_test.py ClassName path/relativ
 | `thirdparty/` | Bundled external dependencies |
 | `tests/` | Unit tests (doctest framework) |
 
-### Key Architectural Patterns
+### GDCLASS and Binding Pattern
 
-**Object System** (`core/object/`): All engine objects inherit from `Object` with reflection via `ClassDB`. Properties, methods, and signals are registered for scripting access.
+This is the most common pattern in the engine. Every exposed class follows it:
 
-**Server Architecture**: Rendering, physics, audio etc. are implemented as singleton "servers" that process requests. Scene nodes send commands to servers; servers handle the actual work.
+```cpp
+class MyNode : public Node2D {
+    GDCLASS(MyNode, Node2D);  // Sets up reflection, RTTI, ClassDB integration
 
-**Module System**: Optional features in `modules/` have a `config.py` defining `can_build()`, `configure()`, and dependencies. Enable/disable with `module_<name>_enabled=yes/no`.
+protected:
+    static void _bind_methods();           // Register methods/properties/signals for scripting
+    void _notification(int p_what);        // Handle lifecycle notifications
+    void _validate_property(PropertyInfo &p_property) const;  // Dynamic property visibility
 
-**Platform Abstraction**: Each platform has `detect.py` for build detection and platform-specific implementations. Platform aliases exist for backwards compatibility (e.g., `x11` → `linuxbsd`).
+public:
+    void set_speed(float p_speed);
+    float get_speed() const;
+};
+```
+
+The `_bind_methods()` body registers everything for scripting and the editor:
+
+```cpp
+void MyNode::_bind_methods() {
+    ClassDB::bind_method(D_METHOD("set_speed", "speed"), &MyNode::set_speed);
+    ClassDB::bind_method(D_METHOD("get_speed"), &MyNode::get_speed);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "speed", PROPERTY_HINT_RANGE, "0,100,0.1"), "set_speed", "get_speed");
+    ADD_SIGNAL(MethodInfo("speed_changed", PropertyInfo(Variant::FLOAT, "new_speed")));
+    BIND_ENUM_CONSTANT(MODE_IDLE);
+}
+```
+
+Classes are registered with macros: `GDREGISTER_CLASS`, `GDREGISTER_VIRTUAL_CLASS`, `GDREGISTER_ABSTRACT_CLASS`, `GDREGISTER_INTERNAL_CLASS`.
+
+### Variant Type System
+
+Variant (`core/variant/`) is the universal type used for scripting interop. 43 types:
+
+- **Atomic**: NIL, BOOL, INT, FLOAT, STRING
+- **Math vectors**: VECTOR2/2I, VECTOR3/3I, VECTOR4/4I, RECT2/2I, PLANE, QUATERNION, AABB
+- **Math transforms**: TRANSFORM2D, BASIS, TRANSFORM3D, PROJECTION
+- **Misc**: COLOR, STRING_NAME, NODE_PATH, RID, OBJECT, CALLABLE, SIGNAL
+- **Containers**: DICTIONARY, ARRAY
+- **Packed arrays**: PACKED\_\*\_ARRAY (byte, int32, int64, float32, float64, string, vector2, vector3, color, vector4)
+
+`PropertyInfo` uses `Variant::Type` to define property types. `PropertyHint` controls editor display (RANGE, ENUM, FILE, RESOURCE_TYPE, etc.).
+
+### Server Architecture and RID Pattern
+
+Servers (RenderingServer, PhysicsServer2D/3D, NavigationServer, AudioServer, TextServer) are singletons accessed via `*Server::get_singleton()`. They use **RID** (Resource ID) handles — opaque identifiers that reference server-side resources without exposing pointers.
+
+Scene nodes call server APIs to create/manipulate resources; servers own the actual data and process it (often on separate threads). This decouples scene representation from backend implementation.
+
+### Node Lifecycle
+
+Key notification order: `NOTIFICATION_ENTER_TREE` (10) → `NOTIFICATION_READY` (13) → `NOTIFICATION_PROCESS` (17) / `NOTIFICATION_PHYSICS_PROCESS` (16) → `NOTIFICATION_EXIT_TREE` (11). Thread safety is enforced via `ERR_THREAD_GUARD` macros.
+
+### Module System
+
+Optional features in `modules/` have a `config.py` with this interface:
+
+```python
+def can_build(env, platform):     # Check if module can build; call env.module_add_dependencies()
+def configure(env):                # Configure build environment
+def get_doc_classes():             # List classes with XML documentation
+def get_doc_path():                # Path to doc_classes/ directory
+def is_enabled():                  # Whether enabled by default
+```
+
+Enable/disable: `module_<name>_enabled=yes/no`. Custom modules: `custom_modules=path`.
 
 ### Scripting Integration
 
-- **GDScript**: `modules/gdscript/` - primary scripting language
-- **C#/.NET**: `modules/mono/` - C# support
-- **GDExtension**: `core/extension/` - native extension API for C++ plugins
+- **GDScript**: `modules/gdscript/` — primary scripting language
+- **C#/.NET**: `modules/mono/` — C# support
+- **GDExtension**: `core/extension/` — native extension API for C++ plugins
 
 ## Code Style
 
-Follow the [Godot code style guidelines](https://contributing.godotengine.org/en/latest/engine/guidelines/code_style.html). Key points:
+Follow the [Godot code style guidelines](https://contributing.godotengine.org/en/latest/engine/guidelines/code_style.html):
 
-- Use clang-format (config in `.clang-format`)
-- Tabs for indentation in C++
-- PascalCase for classes, snake_case for functions/variables
-- Prefix private members with underscore
+- **Formatting**: `.clang-format` enforces style automatically (based on LLVM, uses `#pragma once`)
+- **Indentation**: Tabs in C++, spaces in Python/SCons/YAML (see `.editorconfig`)
+- **Line endings**: LF everywhere, UTF-8, trailing whitespace trimmed
+- **Naming**: PascalCase for classes, snake_case for functions/variables, underscore prefix for private members
+- **Linting**: `.clang-tidy` checks for member init, deprecated headers, nullptr usage, braces
+
+Format/validate scripts in `misc/`:
+- `misc/scripts/file_format.py` — enforce encoding, line endings, whitespace
+- `misc/scripts/copyright_headers.py` — check/update copyright headers
+- `misc/scripts/header_guards.py` — convert to `#pragma once`
 
 ## Commit Message Format
 
@@ -130,6 +235,8 @@ Examples:
 - `Add C# iOS support`
 - `Core: Fix Object::has_method() for script static methods`
 - `Fix GLES3 instanced rendering color and custom data defaults`
+
+Use `git pull --rebase` to avoid merge commits. One PR per topic. Reference issues in PR description (not commit message) using GitHub closing keywords.
 
 ## Documentation
 
