@@ -2150,12 +2150,6 @@ void LightStorage::_update_shadow_atlas(ShadowAtlas *shadow_atlas) {
 		Vector<RID> fb_tex;
 		fb_tex.push_back(shadow_atlas->depth);
 		shadow_atlas->fb = RD::get_singleton()->framebuffer_create(fb_tex);
-
-		// Create matching static cache depth texture for shadow caching.
-		shadow_atlas->depth_static = RD::get_singleton()->texture_create(tf, RD::TextureView());
-		Vector<RID> fb_static_tex;
-		fb_static_tex.push_back(shadow_atlas->depth_static);
-		shadow_atlas->fb_static = RD::get_singleton()->framebuffer_create(fb_static_tex);
 	}
 }
 
@@ -2177,14 +2171,6 @@ void LightStorage::shadow_atlas_set_size(RID p_atlas, int p_size, bool p_16_bits
 	if (shadow_atlas->depth.is_valid()) {
 		RD::get_singleton()->free_rid(shadow_atlas->depth);
 		shadow_atlas->depth = RID();
-	}
-	if (shadow_atlas->fb_static.is_valid()) {
-		RD::get_singleton()->free_rid(shadow_atlas->fb_static);
-		shadow_atlas->fb_static = RID();
-	}
-	if (shadow_atlas->depth_static.is_valid()) {
-		RD::get_singleton()->free_rid(shadow_atlas->depth_static);
-		shadow_atlas->depth_static = RID();
 	}
 	for (int i = 0; i < 4; i++) {
 		//clear subdivisions
@@ -2551,6 +2537,38 @@ void LightStorage::shadow_atlas_update(RID p_atlas) {
 	ERR_FAIL_NULL(shadow_atlas);
 
 	_update_shadow_atlas(shadow_atlas);
+}
+
+LightStorage::ShadowAtlas::Quadrant::Shadow *LightStorage::_shadow_atlas_get_shadow(RID p_atlas, RID p_light_instance) {
+	ShadowAtlas *shadow_atlas = shadow_atlas_owner.get_or_null(p_atlas);
+	ERR_FAIL_NULL_V(shadow_atlas, nullptr);
+	HashMap<RID, uint32_t>::ConstIterator it = shadow_atlas->shadow_owners.find(p_light_instance);
+	if (!it) {
+		return nullptr;
+	}
+	uint32_t key = it->value;
+	uint32_t q = (key >> QUADRANT_SHIFT) & 0x3;
+	uint32_t s = key & SHADOW_INDEX_MASK;
+	return &shadow_atlas->quadrants[q].shadows.write[s];
+}
+
+bool LightStorage::shadow_atlas_is_static_cache_valid(RID p_atlas, RID p_light_instance) {
+	ShadowAtlas::Quadrant::Shadow *sh = _shadow_atlas_get_shadow(p_atlas, p_light_instance);
+	return sh && sh->static_cache_valid;
+}
+
+void LightStorage::shadow_atlas_mark_static_cache_valid(RID p_atlas, RID p_light_instance) {
+	ShadowAtlas::Quadrant::Shadow *sh = _shadow_atlas_get_shadow(p_atlas, p_light_instance);
+	if (sh) {
+		sh->static_cache_valid = true;
+	}
+}
+
+void LightStorage::shadow_atlas_invalidate_static_cache(RID p_atlas, RID p_light_instance) {
+	ShadowAtlas::Quadrant::Shadow *sh = _shadow_atlas_get_shadow(p_atlas, p_light_instance);
+	if (sh) {
+		sh->static_cache_valid = false;
+	}
 }
 
 RD::DataFormat LightStorage::get_shadow_atlas_depth_format(bool p_16_bits) {

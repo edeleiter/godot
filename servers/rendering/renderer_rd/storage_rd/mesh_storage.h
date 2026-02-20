@@ -155,6 +155,7 @@ private:
 			RID blas;
 			RID blas_vertex_array; // Kept alive for BLAS reference.
 			bool blas_pending = false; // Deferred BLAS creation needed.
+			bool blas_built = false; // True after the initial GPU build command is submitted.
 		};
 
 		uint32_t blend_shape_count = 0;
@@ -450,6 +451,28 @@ public:
 		ERR_FAIL_UNSIGNED_INDEX_V(p_surface_index, mesh->surface_count, RID());
 		ERR_FAIL_NULL_V(mesh->surfaces, RID());
 		return mesh->surfaces[p_surface_index]->blas;
+	}
+
+	// Returns true if the BLAS for p_surface_index has already had its initial GPU build submitted.
+	_FORCE_INLINE_ bool mesh_surface_is_blas_built(RID p_mesh, uint32_t p_surface_index) const {
+		Mesh *mesh = mesh_owner.get_or_null(p_mesh);
+		ERR_FAIL_NULL_V(mesh, false);
+		ERR_FAIL_UNSIGNED_INDEX_V(p_surface_index, mesh->surface_count, false);
+		ERR_FAIL_NULL_V(mesh->surfaces, false);
+		return mesh->surfaces[p_surface_index]->blas_built;
+	}
+
+	_FORCE_INLINE_ void mesh_surface_mark_blas_built(RID p_mesh, uint32_t p_surface_index) {
+		Mesh *mesh = mesh_owner.get_or_null(p_mesh);
+		ERR_FAIL_NULL(mesh);
+		ERR_FAIL_UNSIGNED_INDEX(p_surface_index, mesh->surface_count);
+		ERR_FAIL_NULL(mesh->surfaces);
+		mesh->surfaces[p_surface_index]->blas_built = true;
+	}
+
+	// Returns true if p_mesh is a currently live (non-freed) mesh RID.
+	_FORCE_INLINE_ bool mesh_is_valid(RID p_mesh) const {
+		return mesh_owner.owns(p_mesh);
 	}
 
 	_FORCE_INLINE_ RID mesh_get_shadow_mesh(RID p_mesh) {

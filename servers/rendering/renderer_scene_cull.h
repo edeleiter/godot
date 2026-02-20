@@ -432,10 +432,10 @@ public:
 
 		// Shadow caching: track whether this instance is a static shadow caster.
 		// Uses wall-clock time so the threshold is frame-rate independent.
-		uint64_t shadow_moved_msec = 0;
+		uint64_t shadow_moved_msec = (uint64_t)OS::get_singleton()->get_ticks_msec();
 		static constexpr double SHADOW_STATIC_THRESHOLD_SEC = 0.5;
-		bool is_shadow_static() const {
-			return (OS::get_singleton()->get_ticks_msec() - shadow_moved_msec) >= (uint64_t)(SHADOW_STATIC_THRESHOLD_SEC * 1000.0);
+		bool is_shadow_static(double p_threshold_sec) const {
+			return (OS::get_singleton()->get_ticks_msec() - shadow_moved_msec) >= (uint64_t)(p_threshold_sec * 1000.0);
 		}
 
 		Instance *lightmap = nullptr;
@@ -1021,6 +1021,10 @@ public:
 	RendererSceneRender::RenderSDFGIUpdateData sdfgi_update_data;
 
 	uint32_t thread_cull_threshold = 200;
+
+	// Seconds an instance must be motionless before its shadow can be cached.
+	// Initialized from ProjectSettings: rendering/lights_and_shadows/shadow_cache_static_threshold.
+	double shadow_static_threshold_sec = Instance::SHADOW_STATIC_THRESHOLD_SEC;
 
 	mutable RID_Owner<Instance, true> instance_owner{ 65536, 4194304 };
 

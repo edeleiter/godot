@@ -539,9 +539,6 @@ void RendererSceneCull::instance_initialize(RID p_rid) {
 	instance_owner.initialize_rid(p_rid);
 	Instance *instance = instance_owner.get_or_null(p_rid);
 	instance->self = p_rid;
-	// Mark as "just created" so it is not immediately classified as a static shadow
-	// caster (which would skip its first shadow render).
-	instance->shadow_moved_msec = OS::get_singleton()->get_ticks_msec();
 }
 
 void RendererSceneCull::_instance_update_mesh_instance(Instance *p_instance) const {
@@ -598,6 +595,9 @@ void RendererSceneCull::instance_set_base(RID p_instance, RID p_base) {
 			case RS::INSTANCE_PARTICLES: {
 				InstanceGeometryData *geom = static_cast<InstanceGeometryData *>(instance->base_data);
 				scene_render->geometry_instance_free(geom->geometry_instance);
+				// TODO(RT Phase B): rt_unregister_instance only covers INSTANCE_MESH.
+				// INSTANCE_MULTIMESH and INSTANCE_PARTICLES are never registered, so no
+				// unregister call is needed for them until Phase B adds their support.
 				if (instance->base_type == RS::INSTANCE_MESH) {
 					scene_render->rt_unregister_instance(p_instance);
 				}
@@ -749,6 +749,11 @@ void RendererSceneCull::instance_set_base(RID p_instance, RID p_base) {
 				}
 
 				// Register with RT scene manager for acceleration structure tracking.
+				// TODO(RT Phase B): INSTANCE_MULTIMESH and INSTANCE_PARTICLES are not tracked here.
+				// Each MultiMesh instance needs its own TLAS entry (one per transform), requiring
+				// iteration over multimesh instance data -- not yet implemented.
+				// Particles change vertex data every frame and need per-frame BLAS rebuilds,
+				// deferred to Phase B when deformable mesh support is added.
 				if (instance->base_type == RS::INSTANCE_MESH) {
 					scene_render->rt_register_mesh_instance(p_instance, p_base, instance->transform);
 				}
@@ -950,6 +955,10 @@ void RendererSceneCull::instance_set_layer_mask(RID p_instance, uint32_t p_mask)
 		geom->geometry_instance->set_layer_mask(p_mask);
 
 		if (geom->can_cast_shadows) {
+			// Shadow caching: layer mask determines which lights see this shadow caster.
+			// Invalidate so the cache is not reused with the wrong light set.
+			instance->shadow_moved_msec = OS::get_singleton()->get_ticks_msec();
+
 			for (HashSet<RendererSceneCull::Instance *>::Iterator I = geom->lights.begin(); I != geom->lights.end(); ++I) {
 				InstanceLightData *light = static_cast<InstanceLightData *>((*I)->base_data);
 				light->make_shadow_dirty();
@@ -1062,6 +1071,12 @@ void RendererSceneCull::instance_set_visible(RID p_instance, bool p_visible) {
 	}
 
 	instance->visible = p_visible;
+
+	// Shadow caching: a visibility change means the shadow state has effectively changed.
+	// Reset so the instance must re-settle before its shadow can be cached again.
+	if ((1 << instance->base_type) & RS::INSTANCE_GEOMETRY_MASK) {
+		instance->shadow_moved_msec = OS::get_singleton()->get_ticks_msec();
+	}
 
 	if (p_visible) {
 		if (instance->scenario != nullptr) {
@@ -1332,6 +1347,9 @@ void RendererSceneCull::instance_geometry_set_cast_shadows_setting(RID p_instanc
 	ERR_FAIL_NULL(instance);
 
 	instance->cast_shadows = p_shadow_casting_setting;
+
+	// Shadow caching: changing whether/how shadows are cast invalidates any cached shadow.
+	instance->shadow_moved_msec = OS::get_singleton()->get_ticks_msec();
 
 	if (instance->scenario && instance->array_index >= 0) {
 		InstanceData &idata = instance->scenario->instance_data[instance->array_index];
@@ -2371,6 +2389,29 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 	}
 }
 
+static void _apply_shadow_static_cache_decision(
+		RendererSceneRender::RenderShadowData *p_shadow_data,
+		uint32_t p_start, uint32_t p_end,
+		bool p_effectively_static, bool p_any_instances,
+		RID p_shadow_atlas, RID p_light_instance) {
+	if (p_effectively_static) {
+		if (RSG::light_storage->shadow_atlas_is_static_cache_valid(p_shadow_atlas, p_light_instance)) {
+			for (uint32_t f = p_start; f < p_end; f++) {
+				p_shadow_data[f].use_static_cache = true;
+			}
+		} else {
+			for (uint32_t f = p_start; f < p_end; f++) {
+				p_shadow_data[f].mark_static_after_render = true;
+			}
+		}
+	} else if (p_any_instances) {
+		RSG::light_storage->shadow_atlas_invalidate_static_cache(p_shadow_atlas, p_light_instance);
+	}
+	for (uint32_t f = p_start; f < p_end; f++) {
+		DEV_ASSERT(!p_shadow_data[f].use_static_cache || !p_shadow_data[f].mark_static_after_render);
+	}
+}
+
 bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, const Transform3D p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, bool p_cam_vaspect, RID p_shadow_atlas, Scenario *p_scenario, float p_screen_mesh_lod_threshold, uint32_t p_visible_layers) {
 	InstanceLightData *light = static_cast<InstanceLightData *>(p_instance->base_data);
 
@@ -2389,6 +2430,10 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 				if (max_shadows_used + 2 > MAX_UPDATE_SHADOWS) {
 					return true;
 				}
+				uint32_t shadow_data_start = max_shadows_used;
+				bool light_all_casters_static = true;
+				bool light_has_animated_material = false;
+				bool light_any_instances = false;
 				for (int i = 0; i < 2; i++) {
 					//using this one ensures that raster deferred will have it
 					RENDER_TIMESTAMP("Cull OmniLight3D Shadow Paraboloid, Half " + itos(i));
@@ -2429,8 +2474,6 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 						light_culler->cull_regular_light(instance_shadow_cull_result);
 					}
 
-					bool all_casters_static = true;
-
 					for (int j = 0; j < (int)instance_shadow_cull_result.size(); j++) {
 						Instance *instance = instance_shadow_cull_result[j];
 						if (!instance->visible || !((1 << instance->base_type) & RS::INSTANCE_GEOMETRY_MASK) || !static_cast<InstanceGeometryData *>(instance->base_data)->can_cast_shadows || !(p_visible_layers & instance->layer_mask & RSG::light_storage->light_get_shadow_caster_mask(p_instance->base))) {
@@ -2438,14 +2481,15 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 						} else {
 							if (static_cast<InstanceGeometryData *>(instance->base_data)->material_is_animated) {
 								animated_material_found = true;
+								light_has_animated_material = true;
 							}
 
 							if (instance->mesh_instance.is_valid()) {
 								RSG::mesh_storage->mesh_instance_check_for_update(instance->mesh_instance);
 							}
 
-							if (!instance->is_shadow_static()) {
-								all_casters_static = false;
+							if (!instance->is_shadow_static(shadow_static_threshold_sec)) {
+								light_all_casters_static = false;
 							}
 						}
 
@@ -2457,7 +2501,14 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 					RSG::light_storage->light_instance_set_shadow_transform(light->instance, Projection(), light_transform, radius, 0, i, 0);
 					shadow_data.light = light->instance;
 					shadow_data.pass = i;
-					shadow_data.use_static_cache = all_casters_static && shadow_data.instances.size() > 0;
+					if (shadow_data.instances.size() > 0) {
+						light_any_instances = true;
+					}
+				}
+				{
+					bool effectively_static = light_all_casters_static && !light_has_animated_material && light_any_instances;
+					_apply_shadow_static_cache_decision(render_shadow_data, shadow_data_start, max_shadows_used,
+							effectively_static, light_any_instances, p_shadow_atlas, light->instance);
 				}
 			} else { //shadow cube
 
@@ -2470,6 +2521,10 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 				Projection cm;
 				cm.set_perspective(90, 1, z_near, radius);
 
+				uint32_t shadow_data_start = max_shadows_used;
+				bool light_all_casters_static = true;
+				bool light_has_animated_material = false;
+				bool light_any_instances = false;
 				for (int i = 0; i < 6; i++) {
 					RENDER_TIMESTAMP("Cull OmniLight3D Shadow Cube, Side " + itos(i));
 					//using this one ensures that raster deferred will have it
@@ -2519,8 +2574,6 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 						light_culler->cull_regular_light(instance_shadow_cull_result);
 					}
 
-					bool all_casters_static = true;
-
 					for (int j = 0; j < (int)instance_shadow_cull_result.size(); j++) {
 						Instance *instance = instance_shadow_cull_result[j];
 						if (!instance->visible || !((1 << instance->base_type) & RS::INSTANCE_GEOMETRY_MASK) || !static_cast<InstanceGeometryData *>(instance->base_data)->can_cast_shadows || !(p_visible_layers & instance->layer_mask & RSG::light_storage->light_get_shadow_caster_mask(p_instance->base))) {
@@ -2528,13 +2581,14 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 						} else {
 							if (static_cast<InstanceGeometryData *>(instance->base_data)->material_is_animated) {
 								animated_material_found = true;
+								light_has_animated_material = true;
 							}
 							if (instance->mesh_instance.is_valid()) {
 								RSG::mesh_storage->mesh_instance_check_for_update(instance->mesh_instance);
 							}
 
-							if (!instance->is_shadow_static()) {
-								all_casters_static = false;
+							if (!instance->is_shadow_static(shadow_static_threshold_sec)) {
+								light_all_casters_static = false;
 							}
 						}
 
@@ -2546,7 +2600,14 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 
 					shadow_data.light = light->instance;
 					shadow_data.pass = i;
-					shadow_data.use_static_cache = all_casters_static && shadow_data.instances.size() > 0;
+					if (shadow_data.instances.size() > 0) {
+						light_any_instances = true;
+					}
+				}
+				{
+					bool effectively_static = light_all_casters_static && !light_has_animated_material && light_any_instances;
+					_apply_shadow_static_cache_decision(render_shadow_data, shadow_data_start, max_shadows_used,
+							effectively_static, light_any_instances, p_shadow_atlas, light->instance);
 				}
 
 				//restore the regular DP matrix
@@ -2588,6 +2649,7 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 
 			p_scenario->indexers[Scenario::INDEXER_GEOMETRY].convex_query(planes.ptr(), planes.size(), points.ptr(), points.size(), cull_convex);
 
+			uint32_t shadow_data_start = max_shadows_used;
 			RendererSceneRender::RenderShadowData &shadow_data = render_shadow_data[max_shadows_used++];
 
 			if (!light->is_shadow_update_full()) {
@@ -2595,6 +2657,7 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 			}
 
 			bool all_casters_static = true;
+			bool pass_has_animated_material = false;
 
 			for (int j = 0; j < (int)instance_shadow_cull_result.size(); j++) {
 				Instance *instance = instance_shadow_cull_result[j];
@@ -2603,13 +2666,14 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 				} else {
 					if (static_cast<InstanceGeometryData *>(instance->base_data)->material_is_animated) {
 						animated_material_found = true;
+						pass_has_animated_material = true;
 					}
 
 					if (instance->mesh_instance.is_valid()) {
 						RSG::mesh_storage->mesh_instance_check_for_update(instance->mesh_instance);
 					}
 
-					if (!instance->is_shadow_static()) {
+					if (!instance->is_shadow_static(shadow_static_threshold_sec)) {
 						all_casters_static = false;
 					}
 				}
@@ -2621,7 +2685,12 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 			RSG::light_storage->light_instance_set_shadow_transform(light->instance, cm, light_transform, radius, 0, 0, 0);
 			shadow_data.light = light->instance;
 			shadow_data.pass = 0;
-			shadow_data.use_static_cache = all_casters_static && shadow_data.instances.size() > 0;
+			{
+				bool any_instances = shadow_data.instances.size() > 0;
+				bool effectively_static = all_casters_static && !pass_has_animated_material && any_instances;
+				_apply_shadow_static_cache_decision(render_shadow_data, shadow_data_start, max_shadows_used,
+						effectively_static, any_instances, p_shadow_atlas, light->instance);
+			}
 
 		} break;
 	}
@@ -3623,6 +3692,8 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 
 	for (uint32_t i = 0; i < max_shadows_used; i++) {
 		render_shadow_data[i].instances.clear();
+		render_shadow_data[i].use_static_cache = false;
+		render_shadow_data[i].mark_static_after_render = false;
 	}
 	max_shadows_used = 0;
 
@@ -4428,6 +4499,11 @@ RendererSceneCull::RendererSceneCull() {
 	bool tighter_caster_culling = GLOBAL_DEF("rendering/lights_and_shadows/tighter_shadow_caster_culling", true);
 	light_culler->set_caster_culling_active(tighter_caster_culling);
 	light_culler->set_light_culling_active(tighter_caster_culling);
+
+	shadow_static_threshold_sec = GLOBAL_DEF(PropertyInfo(Variant::FLOAT,
+			"rendering/lights_and_shadows/shadow_cache_static_threshold",
+			PROPERTY_HINT_RANGE, "0.0,5.0,0.01,or_greater,suffix:s"),
+			Instance::SHADOW_STATIC_THRESHOLD_SEC);
 }
 
 RendererSceneCull::~RendererSceneCull() {

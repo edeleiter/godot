@@ -769,6 +769,9 @@ void RenderForwardMobile::_pre_opaque_render(RenderDataRD *p_render_data) {
 		//cube shadows are rendered in their own way
 		for (const int &index : p_render_data->cube_shadows) {
 			_render_shadow_pass(p_render_data->render_shadows[index].light, p_render_data->shadow_atlas, p_render_data->render_shadows[index].pass, p_render_data->render_shadows[index].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, true, true, true, p_render_data->render_info, p_render_data->scene_data->cam_transform);
+			if (p_render_data->render_shadows[index].mark_static_after_render) {
+				RSG::light_storage->shadow_atlas_mark_static_cache_valid(p_render_data->shadow_atlas, p_render_data->render_shadows[index].light);
+			}
 		}
 
 		if (p_render_data->directional_shadows.size()) {
@@ -795,6 +798,9 @@ void RenderForwardMobile::_pre_opaque_render(RenderDataRD *p_render_data) {
 		for (uint32_t i = 0; i < p_render_data->shadows.size(); i++) {
 			const RendererSceneRender::RenderShadowData &shadow = p_render_data->render_shadows[p_render_data->shadows[i]];
 			_render_shadow_pass(shadow.light, p_render_data->shadow_atlas, shadow.pass, shadow.instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, i == 0, i == p_render_data->shadows.size() - 1, true, p_render_data->render_info, p_render_data->scene_data->cam_transform);
+			if (shadow.mark_static_after_render) {
+				RSG::light_storage->shadow_atlas_mark_static_cache_valid(p_render_data->shadow_atlas, shadow.light);
+			}
 		}
 
 		_render_shadow_process();

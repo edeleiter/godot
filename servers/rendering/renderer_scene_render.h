@@ -291,7 +291,8 @@ public:
 		RID light;
 		int pass = 0;
 		PagedArray<RenderGeometryInstance *> instances;
-		bool use_static_cache = false; // Skip static re-render if cache valid.
+		bool use_static_cache = false;         // True: skip render, reuse cached atlas tile.
+		bool mark_static_after_render = false; // True: render this frame, then mark cache valid.
 	};
 
 	struct RenderSDFGIData {

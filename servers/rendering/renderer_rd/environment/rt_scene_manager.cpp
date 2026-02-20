@@ -99,13 +99,16 @@ void RTSceneManager::update_tlas() {
 		WARN_PRINT_ONCE("RTSceneManager::update_tlas() skipped due to reentrant call -- will complete next frame.");
 		return;
 	}
-	is_updating_tlas = true;
+
+	// RAII guard: ensures is_updating_tlas is always reset on any exit path.
+	struct TLASGuard {
+		bool &flag;
+		TLASGuard(bool &p_flag) : flag(p_flag) { flag = true; }
+		~TLASGuard() { flag = false; }
+	} tlas_guard(is_updating_tlas);
 
 	RD *rd = RD::get_singleton();
-	// Cannot use ERR_FAIL_NULL here: the guard must be reset before returning,
-	// or all future update_tlas() calls will be silently skipped.
 	if (rd == nullptr) {
-		is_updating_tlas = false;
 		ERR_PRINT("RTSceneManager::update_tlas: RenderingDevice singleton is null.");
 		return;
 	}
@@ -120,31 +123,46 @@ void RTSceneManager::update_tlas() {
 	// (b) rebuild BLAS per frame for deformable surfaces (expensive). See RT_INFRASTRUCTURE.md.
 
 	// Collect BLAS from all mesh surfaces across all registered instances.
+	// Stale instances (freed mesh RIDs) are collected and unregistered after the loop.
 	Vector<RID> blases;
 	Vector<Transform3D> transforms;
+	Vector<RID> stale_instances;
 
 	for (const KeyValue<RID, InstanceData> &kv : instances) {
+		if (!mesh_storage->mesh_is_valid(kv.value.mesh)) {
+			// Mesh was freed without calling rt_unregister_instance -- auto-cleanup.
+			stale_instances.push_back(kv.key);
+			continue;
+		}
 		int surface_count = mesh_storage->mesh_get_surface_count(kv.value.mesh);
 		for (int i = 0; i < surface_count; i++) {
 			RID blas = mesh_storage->mesh_surface_get_blas(kv.value.mesh, i);
 			if (blas.is_valid()) {
 				blases.push_back(blas);
 				transforms.push_back(kv.value.transform);
-				// Build every frame; GPU driver can no-op static BLASes.
-				// Avoids RID-recycling hazards from a persistent built-set.
-				Error blas_err = rd->acceleration_structure_build(blas);
-				if (blas_err != OK) {
-					WARN_PRINT("RTSceneManager: BLAS build failed for RID " + itos(blas.get_id()) + " -- will retry next frame.");
+				// Only submit the GPU build command once per BLAS lifetime.
+				// Static geometry never needs a rebuild; deformable meshes are a Phase B concern.
+				if (!mesh_storage->mesh_surface_is_blas_built(kv.value.mesh, i)) {
+					Error blas_err = rd->acceleration_structure_build(blas);
+					if (blas_err == OK) {
+						mesh_storage->mesh_surface_mark_blas_built(kv.value.mesh, i);
+					} else {
+						WARN_PRINT("RTSceneManager: BLAS build failed for RID " + itos(blas.get_id()) + " -- will retry next frame.");
+					}
 				}
 			}
 		}
 	}
 
+	for (const RID &stale : stale_instances) {
+		WARN_PRINT("RTSceneManager: auto-unregistering instance with freed mesh RID -- call rt_unregister_instance before freeing the mesh.");
+		instances.erase(stale);
+	}
+
 	uint32_t count = blases.size();
 	if (count == 0) {
 		tlas_dirty = false;
-		is_updating_tlas = false;
-		return;
+		return; // tlas_guard destructor resets is_updating_tlas.
 	}
 
 	// Reallocate instances buffer if needed.
@@ -176,5 +194,5 @@ void RTSceneManager::update_tlas() {
 	}
 
 	tlas_dirty = false;
-	is_updating_tlas = false;
+	// tlas_guard destructor resets is_updating_tlas.
 }
