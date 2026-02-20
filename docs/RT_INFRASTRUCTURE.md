@@ -91,9 +91,10 @@ New `RTSceneManager` class. Owns the scene's TLAS and manages the per-mesh BLAS 
   `MeshStorage::build_pending_blas_surfaces()` at the start of each TLAS update to process the
   deferred queue. This avoids stalling mesh loading with GPU work.
 
-- **One GPU build per BLAS:** The `built_blases` HashSet tracks which BLAS RIDs have already
-  been submitted to the GPU. Static geometry is only built once; only newly dirty instances
-  trigger a rebuild.
+- **One GPU build per BLAS:** Each `MeshStorage::Surface` carries a `bool blas_built` flag.
+  `RTSceneManager::update_tlas()` checks `mesh_surface_is_blas_built(mesh, i)` before submitting
+  a GPU build command, and calls `mesh_surface_mark_blas_built(mesh, i)` after. Static geometry
+  is only built once; only surfaces without the flag set trigger a rebuild.
 
 - **Reentrancy guard:** The `is_updating_tlas` bool prevents a subtle crash. Godot's editor
   `ProgressDialog` calls `Main::iteration()` during filesystem scans and other long operations,
@@ -142,16 +143,21 @@ Added to the `Instance` struct:
 uint64_t shadow_moved_msec = 0;           // wall-clock time of last transform change
 static constexpr double SHADOW_STATIC_THRESHOLD_SEC = 0.5;
 
-bool is_shadow_static() const {
+bool is_shadow_static(double p_threshold_sec) const {
     return (OS::get_singleton()->get_ticks_msec() - shadow_moved_msec)
-           >= (uint64_t)(SHADOW_STATIC_THRESHOLD_SEC * 1000.0);
+           >= (uint64_t)(p_threshold_sec * 1000.0);
 }
 ```
 
-`instance_set_transform()` updates `shadow_moved_msec` on every transform change. The
-`SHADOW_STATIC_THRESHOLD_SEC = 0.5` threshold is deliberately short: half a second is enough
-time for a physics-driven object to fully settle after a collision, while being imperceptible
-as a visual delay in shadow updates.
+The threshold is passed by the caller: `RendererSceneCull` reads `shadow_static_threshold_sec`
+from the `rendering/lights_and_shadows/shadow_cache_static_threshold` project setting (see
+[Project Setting](#project-setting-shadow_cache_static_threshold) below) and forwards it on
+every `is_shadow_static()` call. This makes the threshold user-configurable without recompiling.
+
+`instance_set_transform()` updates `shadow_moved_msec` on every transform change. The default
+`SHADOW_STATIC_THRESHOLD_SEC = 0.5` is deliberately short: half a second is enough time for a
+physics-driven object to fully settle after a collision, while being imperceptible as a visual
+delay in shadow updates.
 
 Using wall-clock milliseconds (not frame count) keeps the threshold frame-rate independent.
 
@@ -172,13 +178,31 @@ removes shadow-casting instances that are both:
 
 The same filter was applied to `forward_mobile` for consistency.
 
+#### Project Setting: `shadow_cache_static_threshold`
+
+| Property | Value |
+|----------|-------|
+| **Key** | `rendering/lights_and_shadows/shadow_cache_static_threshold` |
+| **Type** | `float` |
+| **Range** | 0.0 – 5.0+ seconds (hint: `"0.0,5.0,0.01,or_greater,suffix:s"`) |
+| **Default** | `Instance::SHADOW_STATIC_THRESHOLD_SEC` (0.5 s) |
+
+Controls how long (in wall-clock seconds) an instance must be motionless before its shadow is
+eligible for caching. Lowering the threshold makes caching more aggressive but risks stale
+shadows for slow-moving objects. Raising it ensures correctness for objects with slow-settling
+physics at the cost of fewer cached tiles at any given moment.
+
+The value is read once at renderer construction into `RendererSceneCull::shadow_static_threshold_sec`
+and passed through to every `Instance::is_shadow_static()` call, keeping the threshold tunable
+via Project Settings without recompiling.
+
 ---
 
 ### Tests
 
 | File | What It Tests |
 |------|---------------|
-| `tests/servers/rendering/test_rt_scene_manager.h` | Register/unregister lifecycle, transform updates, TLAS dirty flag propagation, RT-unavailable no-op path |
+| `tests/servers/rendering/test_rt_scene_manager.h` | Registration/unregister lifecycle, transform updates, RT-unavailable no-op paths (all tests run headless without a GPU/RD context — no live TLAS or GPU build submission) |
 | `tests/servers/rendering/test_shadow_caching.h` | Static classification after settle time, cache invalidation on transform change, light version change invalidation |
 
 ---
@@ -253,9 +277,9 @@ Frame N begins
 │     ├─ For each registered instance:
 │     │     For each mesh surface:
 │     │       Get surface BLAS RID
-│     │       If not in built_blases:
+│     │       If not mesh_surface_is_blas_built(mesh, i):
 │     │         rd->acceleration_structure_build(blas)
-│     │         built_blases.insert(blas)
+│     │         mesh_surface_mark_blas_built(mesh, i)
 │     │       Append (blas, transform) to list
 │     │
 │     ├─ Reallocate instances_buffer if count changed
@@ -287,13 +311,37 @@ objects set it only on the first frame after scene load.
 ### BLAS Build Frequency
 
 BLASes for **static geometry** are built exactly once (GPU build is expensive — ~ms range for
-complex meshes). The `built_blases` HashSet prevents repeated builds. BLASes for **deformable
-geometry** (skinned meshes, morph targets) would need to be rebuilt per frame, but that case
-is not handled in Phase A.
+complex meshes). The per-surface `blas_built` flag on `MeshStorage::Surface` prevents repeated
+builds: once `mesh_surface_mark_blas_built()` is called, that surface is never submitted again.
+BLASes for **deformable geometry** (skinned meshes, morph targets) would need to be rebuilt per
+frame, but that case is not handled in Phase A.
 
 ---
 
 ## 5. How It Works: Shadow Caching
+
+### State Machine Overview
+
+Each shadow-casting instance moves through three conceptual states derived from
+`is_shadow_static()` and `ShadowAtlas::Quadrant::Shadow::static_cache_valid`:
+
+```mermaid
+stateDiagram-v2
+    [*] --> DIRTY : instance created
+    DIRTY --> JUST_SETTLED : settle ≥ threshold AND cache invalid
+    DIRTY --> CACHED : settle ≥ threshold AND cache valid
+    JUST_SETTLED --> CACHED : next frame (mark_static_after_render consumed)
+    CACHED --> DIRTY : instance moves OR light changes
+    JUST_SETTLED --> DIRTY : instance moves
+```
+
+- **DIRTY** — `is_shadow_static()` returns `false`; instance is re-rendered into the shadow
+  atlas every frame.
+- **JUST_SETTLED** — `is_shadow_static()` returns `true` but `static_cache_valid` is still
+  `false`; the instance is rendered one final time this frame to populate the tile, then
+  `static_cache_valid` is set to `true`.
+- **CACHED** — both conditions met; `_filter_static_cached_shadows()` removes this instance
+  from the shadow render list entirely, reusing the cached tile.
 
 ### The Settle Lifecycle
 

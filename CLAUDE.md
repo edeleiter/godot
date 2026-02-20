@@ -136,6 +136,54 @@ TEST_CASE("[MyClass] Description") {
 | `thirdparty/` | Bundled external dependencies |
 | `tests/` | Unit tests (doctest framework) |
 
+### Fork-Specific Systems (`unreal` branch)
+
+This fork adds two new rendering systems not present in upstream Godot. See `docs/` for the
+primary reference documentation:
+
+- **`docs/RT_INFRASTRUCTURE.md`** — authoritative reference for both systems (BLAS/TLAS
+  management and shadow static caching). Start here.
+- **`docs/GRAPHICS_ENHANCEMENT_ANALYSIS.md`** — pre-implementation rationale and gap analysis
+  (historical; Sections 2.4 and 2.6 are now outdated).
+- **`docs/RAY_TRACING_PHASE_A.md`** — narrative explanation of what Phase A built, why, and
+  what comes next.
+
+#### Shadow Caching — Key Files & Symbols
+
+| Symbol | Location |
+|--------|----------|
+| `Instance::shadow_moved_msec` | `servers/rendering/renderer_scene_cull.h:435` |
+| `Instance::SHADOW_STATIC_THRESHOLD_SEC` (default 0.5 s) | `servers/rendering/renderer_scene_cull.h:436` |
+| `Instance::is_shadow_static(double p_threshold_sec)` | `servers/rendering/renderer_scene_cull.h:437` |
+| `RendererSceneCull::shadow_static_threshold_sec` | `servers/rendering/renderer_scene_cull.h:1027` |
+| `ShadowAtlas::Quadrant::Shadow::static_cache_valid` | `servers/rendering/renderer_rd/storage_rd/light_storage.h:400` |
+| `RenderShadowData::use_static_cache` / `mark_static_after_render` | `servers/rendering/renderer_rd/renderer_scene_render.h` |
+| `_filter_static_cached_shadows()` | `servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp` and `forward_mobile/render_forward_mobile.cpp` |
+| **Project setting** | `rendering/lights_and_shadows/shadow_cache_static_threshold` (float, 0.0–5.0+ s, default 0.5 s) |
+
+#### RT Infrastructure — Key Files & Symbols
+
+| Symbol | Location |
+|--------|----------|
+| `RTSceneManager` | `servers/rendering/renderer_rd/environment/rt_scene_manager.h/.cpp` |
+| `MeshStorage::Surface::blas` / `blas_built` / `blas_pending` | `servers/rendering/renderer_rd/storage_rd/mesh_storage.h` |
+| `mesh_surface_is_blas_built()` / `mesh_surface_mark_blas_built()` | `servers/rendering/renderer_rd/storage_rd/mesh_storage.h:457–470` |
+| `RendererSceneRender::rt_register_mesh_instance()` | virtual method on `renderer_scene_render.h` |
+| `RendererSceneRender::rt_update_instance_transform()` | virtual method on `renderer_scene_render.h` |
+| `RendererSceneRender::rt_update()` | virtual method on `renderer_scene_render.h` |
+
+**Hardware requirements:** RT features are Vulkan-only. D3D12 RT functions are stubs returning
+error messages. GLES3 no-ops. Both features degrade gracefully on unsupported hardware.
+
+#### New Test Suites
+
+| File | What It Tests |
+|------|---------------|
+| `tests/servers/rendering/test_shadow_caching.h` | Static classification after settle time, cache invalidation on transform change, light version change |
+| `tests/servers/rendering/test_rt_scene_manager.h` | Registration lifecycle, transform updates, RT-unavailable no-op paths (headless, no GPU context) |
+
+---
+
 ### GDCLASS and Binding Pattern
 
 This is the most common pattern in the engine. Every exposed class follows it:

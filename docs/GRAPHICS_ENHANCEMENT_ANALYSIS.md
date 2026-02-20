@@ -1,3 +1,7 @@
+> **Note:** This document is a pre-implementation analysis written before Phase A work began.
+> It is preserved as historical rationale. For current system state, see [RT_INFRASTRUCTURE.md](RT_INFRASTRUCTURE.md).
+> Sections 2.4 (shadow caching) and 2.6 (RT integration) are now outdated.
+
 # Godot 4.7 Graphics Enhancements: Closing the Gap with Unreal Engine 5.7
 
 **Document Type:** Research & Architectural Analysis (no engine code changes)
