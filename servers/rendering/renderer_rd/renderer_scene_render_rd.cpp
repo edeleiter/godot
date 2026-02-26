@@ -1553,6 +1553,14 @@ void RendererSceneRenderRD::rt_update() {
 	rt_scene_manager.update_tlas();
 }
 
+void RendererSceneRenderRD::rt_mark_instance_deformable(RID p_instance, RID p_mesh_instance) {
+	rt_scene_manager.mark_instance_deformable(p_instance, p_mesh_instance);
+}
+
+void RendererSceneRenderRD::rt_update_deformable() {
+	rt_scene_manager.update_deformable_blas_and_rebuild_tlas();
+}
+
 void RendererSceneRenderRD::set_time(double p_time, double p_step) {
 	time = p_time;
 	time_step = p_step;

@@ -156,6 +156,7 @@ private:
 			RID blas_vertex_array; // Kept alive for BLAS reference.
 			bool blas_pending = false; // Deferred BLAS creation needed.
 			bool blas_built = false; // True after the initial GPU build command is submitted.
+			bool blas_allow_update = false; // True for skinned/blend-shape meshes; enables per-frame BLAS update.
 		};
 
 		uint32_t blend_shape_count = 0;
@@ -468,6 +469,24 @@ public:
 		ERR_FAIL_UNSIGNED_INDEX(p_surface_index, mesh->surface_count);
 		ERR_FAIL_NULL(mesh->surfaces);
 		mesh->surfaces[p_surface_index]->blas_built = true;
+	}
+
+	_FORCE_INLINE_ bool mesh_surface_blas_allow_update(RID p_mesh, uint32_t p_surface_index) const {
+		const Mesh *mesh = mesh_owner.get_or_null(p_mesh);
+		ERR_FAIL_NULL_V(mesh, false);
+		ERR_FAIL_UNSIGNED_INDEX_V(p_surface_index, mesh->surface_count, false);
+		return mesh->surfaces[p_surface_index]->blas_allow_update;
+	}
+
+	// Returns the current deformed vertex buffer for a MeshInstance surface.
+	// This is the buffer written by GPU skinning, NOT the static bind-pose buffer.
+	// Returns an invalid RID if the mesh instance has no deformed buffer for this surface.
+	_FORCE_INLINE_ RID mesh_instance_get_current_vertex_buffer(RID p_mesh_instance, uint32_t p_surface_index) const {
+		const MeshInstance *mi = mesh_instance_owner.get_or_null(p_mesh_instance);
+		ERR_FAIL_NULL_V(mi, RID());
+		ERR_FAIL_UNSIGNED_INDEX_V(p_surface_index, mi->surfaces.size(), RID());
+		const MeshInstance::Surface &mis = mi->surfaces[p_surface_index];
+		return mis.vertex_buffer[mis.current_buffer];
 	}
 
 	// Returns true if p_mesh is a currently live (non-freed) mesh RID.

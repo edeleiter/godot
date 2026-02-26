@@ -196,8 +196,9 @@ private:
 		float shadow_opacity;
 		float fade_from;
 		float fade_to;
-		uint32_t pad[2];
-		uint32_t bake_mode;
+		int32_t rt_shadow_slice; // Phase C: -1 = no RT shadow; 0-15 = texture2DArray slice. Repurposes pad[0]; pad[1] becomes pad below.
+		uint32_t pad;
+		uint32_t bake_mode; // bits [1:0] = RS::LightBakeMode (directional uses rt_shadow_slice above, not bake_mode packing)
 		float volumetric_fog_energy;
 		float shadow_bias[4];
 		float shadow_normal_bias[4];
@@ -832,7 +833,7 @@ public:
 		}
 		return false;
 	}
-	void update_light_buffers(RenderDataRD *p_render_data, const PagedArray<RID> &p_lights, const Transform3D &p_camera_transform, RID p_shadow_atlas, bool p_using_shadows, uint32_t &r_directional_light_count, uint32_t &r_positional_light_count, bool &r_directional_light_soft_shadows);
+	void update_light_buffers(RenderDataRD *p_render_data, const PagedArray<RID> &p_lights, const Transform3D &p_camera_transform, RID p_shadow_atlas, bool p_using_shadows, uint32_t &r_directional_light_count, uint32_t &r_positional_light_count, bool &r_directional_light_soft_shadows, const HashMap<RID, int32_t> *p_rt_shadow_mapping = nullptr);
 
 	/* REFLECTION PROBE */
 

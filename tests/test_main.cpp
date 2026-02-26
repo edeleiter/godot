@@ -153,6 +153,7 @@
 #include "tests/scene/test_viewport.h"
 #include "tests/scene/test_visual_shader.h"
 #include "tests/scene/test_window.h"
+#include "tests/servers/rendering/test_rt_phase_b.h"
 #include "tests/servers/rendering/test_rt_scene_manager.h"
 #include "tests/servers/rendering/test_shader_preprocessor.h"
 #include "tests/servers/rendering/test_shadow_caching.h"

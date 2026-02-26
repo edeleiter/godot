@@ -252,6 +252,13 @@ namespace respv {
         case SpvOpGroupNonUniformQuadBroadcast:
         case SpvOpGroupNonUniformQuadSwap:
         case SpvOpCopyLogical:
+        // VK_KHR_ray_tracing_pipeline opcodes
+        case SpvOpTypeAccelerationStructureKHR:
+        case SpvOpTraceRayKHR:
+        case SpvOpReportIntersectionKHR:
+        case SpvOpIgnoreIntersectionKHR:
+        case SpvOpTerminateRayKHR:
+        case SpvOpExecuteCallableKHR:
             return true;
         default:
             return false;
@@ -638,6 +645,13 @@ namespace respv {
         case SpvOpFunctionEnd:
         case SpvOpExtension:
         case SpvOpUndef:
+        // VK_KHR_ray_tracing_pipeline — no ID operands to track for spec-const analysis
+        case SpvOpTypeAccelerationStructureKHR:
+        case SpvOpTraceRayKHR:
+        case SpvOpReportIntersectionKHR:
+        case SpvOpIgnoreIntersectionKHR:
+        case SpvOpTerminateRayKHR:
+        case SpvOpExecuteCallableKHR:
             rOperandWordStart = 0;
             rOperandWordCount = 0;
             rOperandWordStride = 0;

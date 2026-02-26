@@ -1357,6 +1357,11 @@ public:
 
 	PASS6(environment_set_ssil_quality, RS::EnvironmentSSILQuality, bool, float, int, float, float)
 
+	// RT Effects (Phase B)
+	PASS2(environment_set_rt_reflections, RID, bool)
+	PASS3(environment_set_rt_ao, RID, bool, float)
+	PASS2(environment_set_rt_shadows, RID, bool)
+
 	// SDFGI
 
 	PASS11(environment_set_sdfgi, RID, bool, int, float, RS::EnvironmentSDFGIYScale, bool, float, bool, float, float, float)

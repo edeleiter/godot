@@ -1315,9 +1315,11 @@ public:
 	enum AccelerationStructureGeometryBits {
 		ACCELERATION_STRUCTURE_GEOMETRY_OPAQUE = (1 << 0),
 		ACCELERATION_STRUCTURE_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION = (1 << 1),
+		ACCELERATION_STRUCTURE_GEOMETRY_ALLOW_UPDATE = (1 << 2),
 	};
 
 	RID blas_create(RID p_vertex_array, RID p_index_array, BitField<AccelerationStructureGeometryBits> p_geometry_bits = 0, uint32_t p_position_attribute_location = 0);
+	Error acceleration_structure_update(RID p_acceleration_structure, RID p_deformed_vertex_buffer);
 	RID tlas_instances_buffer_create(uint32_t p_instance_count, BitField<BufferCreationBits> p_creation_bits = 0);
 	void tlas_instances_buffer_fill(RID p_buffer, const Vector<RID> &p_blases, VectorView<Transform3D> p_transforms);
 	RID tlas_create(RID p_instances_buffer);

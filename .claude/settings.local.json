@@ -21,7 +21,19 @@
       "mcp__godot__godot_select_nodes",
       "mcp__godot__godot_remove_node",
       "WebFetch(domain:www.cgchannel.com)",
-      "mcp__claude_ai_Ref__ref_search_documentation"
+      "mcp__claude_ai_Ref__ref_search_documentation",
+      "mcp__godot__godot_new_scene",
+      "mcp__godot__godot_transform_nodes",
+      "mcp__godot__godot_save_scene",
+      "mcp__godot__godot_wait",
+      "mcp__godot__godot_open_scene",
+      "mcp__godot__godot_get_runtime_errors",
+      "mcp__godot__godot_set_properties_batch",
+      "mcp__godot__godot_get_node_info",
+      "mcp__godot__godot_get_editor_log",
+      "mcp__godot__godot_project_files",
+      "Bash(python3:*)",
+      "mcp__plugin_godot-mcp_godot__godot_capture_screenshot"
     ]
   }
 }

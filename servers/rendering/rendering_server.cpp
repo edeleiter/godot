@@ -3130,6 +3130,9 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("environment_set_ssr_roughness_quality", "quality"), &RenderingServer::environment_set_ssr_roughness_quality);
 	ClassDB::bind_method(D_METHOD("environment_set_ssao_quality", "quality", "half_size", "adaptive_target", "blur_passes", "fadeout_from", "fadeout_to"), &RenderingServer::environment_set_ssao_quality);
 	ClassDB::bind_method(D_METHOD("environment_set_ssil_quality", "quality", "half_size", "adaptive_target", "blur_passes", "fadeout_from", "fadeout_to"), &RenderingServer::environment_set_ssil_quality);
+	ClassDB::bind_method(D_METHOD("environment_set_rt_reflections", "env", "enabled"), &RenderingServer::environment_set_rt_reflections);
+	ClassDB::bind_method(D_METHOD("environment_set_rt_ao", "env", "enabled", "radius"), &RenderingServer::environment_set_rt_ao);
+	ClassDB::bind_method(D_METHOD("environment_set_rt_shadows", "env", "enabled"), &RenderingServer::environment_set_rt_shadows);
 	ClassDB::bind_method(D_METHOD("environment_set_sdfgi_ray_count", "ray_count"), &RenderingServer::environment_set_sdfgi_ray_count);
 	ClassDB::bind_method(D_METHOD("environment_set_sdfgi_frames_to_converge", "frames"), &RenderingServer::environment_set_sdfgi_frames_to_converge);
 	ClassDB::bind_method(D_METHOD("environment_set_sdfgi_frames_to_update_light", "frames"), &RenderingServer::environment_set_sdfgi_frames_to_update_light);
@@ -3824,6 +3827,12 @@ void RenderingServer::init() {
 	GLOBAL_DEF("rendering/environment/glow/upscale_mode.mobile", 0);
 
 	GLOBAL_DEF("rendering/environment/screen_space_reflection/half_size", true);
+
+	// RT effects (Phase B — Vulkan raytracing only; no-op on non-RT hardware).
+	GLOBAL_DEF("rendering/rt/reflections/enabled", false);
+	GLOBAL_DEF("rendering/rt/ao/enabled", false);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/rt/ao/radius", PROPERTY_HINT_RANGE, "0.1,5.0,0.01"), 1.0);
+	GLOBAL_DEF("rendering/rt/shadows/enabled", false);
 
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/environment/subsurface_scattering/subsurface_scattering_quality", PROPERTY_HINT_ENUM, "Disabled (Fastest),Low (Fast),Medium (Average),High (Slow)"), 1);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/environment/subsurface_scattering/subsurface_scattering_scale", PROPERTY_HINT_RANGE, "0.001,1,0.001"), 0.05);

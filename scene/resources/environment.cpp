@@ -465,6 +465,60 @@ void Environment::_update_ssil() {
 			ssil_normal_rejection);
 }
 
+// RT Reflections
+
+void Environment::set_rt_reflections_enabled(bool p_enabled) {
+	rt_reflections_enabled = p_enabled;
+	_update_rt_reflections();
+}
+
+bool Environment::is_rt_reflections_enabled() const {
+	return rt_reflections_enabled;
+}
+
+void Environment::_update_rt_reflections() {
+	RS::get_singleton()->environment_set_rt_reflections(environment, rt_reflections_enabled);
+}
+
+// RT AO
+
+void Environment::set_rt_ao_enabled(bool p_enabled) {
+	rt_ao_enabled = p_enabled;
+	_update_rt_ao();
+}
+
+bool Environment::is_rt_ao_enabled() const {
+	return rt_ao_enabled;
+}
+
+void Environment::set_rt_ao_radius(float p_radius) {
+	rt_ao_radius = p_radius;
+	_update_rt_ao();
+}
+
+float Environment::get_rt_ao_radius() const {
+	return rt_ao_radius;
+}
+
+void Environment::_update_rt_ao() {
+	RS::get_singleton()->environment_set_rt_ao(environment, rt_ao_enabled, rt_ao_radius);
+}
+
+// RT Shadows
+
+void Environment::set_rt_shadows_enabled(bool p_enabled) {
+	rt_shadows_enabled = p_enabled;
+	_update_rt_shadows();
+}
+
+bool Environment::is_rt_shadows_enabled() const {
+	return rt_shadows_enabled;
+}
+
+void Environment::_update_rt_shadows() {
+	RS::get_singleton()->environment_set_rt_shadows(environment, rt_shadows_enabled);
+}
+
 // SDFGI
 
 void Environment::set_sdfgi_enabled(bool p_enabled) {
@@ -1168,6 +1222,10 @@ void Environment::_validate_property(PropertyInfo &p_property) const {
 				p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 			}
 		}
+		// RT effects only work in Forward+ (Vulkan raytracing).
+		if (p_property.name.begins_with("rt_reflections_") || p_property.name.begins_with("rt_ao_") || p_property.name.begins_with("rt_shadows_")) {
+			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+		}
 	}
 
 	if (p_property.name == "background_color") {
@@ -1359,6 +1417,33 @@ void Environment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ssil_intensity", PROPERTY_HINT_RANGE, "0,16,0.01,or_greater"), "set_ssil_intensity", "get_ssil_intensity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ssil_sharpness", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_ssil_sharpness", "get_ssil_sharpness");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ssil_normal_rejection", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_ssil_normal_rejection", "get_ssil_normal_rejection");
+
+	// RT Reflections
+
+	ClassDB::bind_method(D_METHOD("set_rt_reflections_enabled", "enabled"), &Environment::set_rt_reflections_enabled);
+	ClassDB::bind_method(D_METHOD("is_rt_reflections_enabled"), &Environment::is_rt_reflections_enabled);
+
+	ADD_GROUP("RT Reflections", "rt_reflections_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rt_reflections_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_rt_reflections_enabled", "is_rt_reflections_enabled");
+
+	// RT AO
+
+	ClassDB::bind_method(D_METHOD("set_rt_ao_enabled", "enabled"), &Environment::set_rt_ao_enabled);
+	ClassDB::bind_method(D_METHOD("is_rt_ao_enabled"), &Environment::is_rt_ao_enabled);
+	ClassDB::bind_method(D_METHOD("set_rt_ao_radius", "radius"), &Environment::set_rt_ao_radius);
+	ClassDB::bind_method(D_METHOD("get_rt_ao_radius"), &Environment::get_rt_ao_radius);
+
+	ADD_GROUP("RT AO", "rt_ao_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rt_ao_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_rt_ao_enabled", "is_rt_ao_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rt_ao_radius", PROPERTY_HINT_RANGE, "0.1,5.0,0.01,suffix:m"), "set_rt_ao_radius", "get_rt_ao_radius");
+
+	// RT Shadows
+
+	ClassDB::bind_method(D_METHOD("set_rt_shadows_enabled", "enabled"), &Environment::set_rt_shadows_enabled);
+	ClassDB::bind_method(D_METHOD("is_rt_shadows_enabled"), &Environment::is_rt_shadows_enabled);
+
+	ADD_GROUP("RT Shadows", "rt_shadows_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rt_shadows_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_rt_shadows_enabled", "is_rt_shadows_enabled");
 
 	// SDFGI
 
@@ -1626,6 +1711,9 @@ Environment::Environment() {
 	_update_ssr();
 	_update_ssao();
 	_update_ssil();
+	_update_rt_reflections();
+	_update_rt_ao();
+	_update_rt_shadows();
 	_update_sdfgi();
 	_update_glow();
 	_update_fog();

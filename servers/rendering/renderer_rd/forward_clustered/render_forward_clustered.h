@@ -109,9 +109,22 @@ public:
 			Projection ssr_last_frame_projections[RendererSceneRender::MAX_RENDER_VIEWS];
 			Transform3D ssr_last_frame_transform;
 
+			// RT Effects (Phase B) reprojection history — separate per-effect to avoid aliasing.
+			Projection rt_ao_last_frame_projections[RendererSceneRender::MAX_RENDER_VIEWS];
+			Transform3D rt_ao_last_frame_transform;
+			Projection rt_refl_last_frame_projections[RendererSceneRender::MAX_RENDER_VIEWS];
+			Transform3D rt_refl_last_frame_transform;
+			Projection rt_shadows_last_frame_projections[RendererSceneRender::MAX_RENDER_VIEWS];
+			Transform3D rt_shadows_last_frame_transform;
+
 			RendererRD::SSEffects::SSILRenderBuffers ssil;
 			RendererRD::SSEffects::SSAORenderBuffers ssao;
 			RendererRD::SSEffects::SSRRenderBuffers ssr;
+			RendererRD::SSEffects::RTShadowsRenderBuffers rt_shadows;
+
+			// RT Shadows Phase C: per-frame RID→slice mapping and composited shadow array.
+			HashMap<RID, int32_t> rt_shadow_mapping; // filled by _prepare_rt_shadow_compositing()
+			RID rt_shadow_array; // texture2DArray, MAX_HISTORY_ENTRIES layers, R8_UNORM, screen-sized
 		} ss_effects_data;
 
 		enum DepthFrameBufferType {
@@ -773,6 +786,13 @@ private:
 	void _copy_framebuffer_to_ss_effects(Ref<RenderSceneBuffersRD> p_render_buffers, bool p_use_ssil, bool p_use_ssr);
 	void _pre_opaque_render(RenderDataRD *p_render_data, bool p_use_ssao, bool p_use_ssil, bool p_use_ssr, bool p_use_gi, const RID *p_normal_roughness_slices, RID p_voxel_gi_buffer);
 	void _process_sss(Ref<RenderSceneBuffersRD> p_render_buffers, const Projection &p_camera);
+
+	// RT Effects (Phase B)
+	void _process_rt_ao(RenderDataRD *p_render_data, Ref<RenderSceneBuffersRD> p_render_buffers, Ref<RenderBufferDataForwardClustered> p_rb_data, const RID *p_normal_roughness_slices);
+	void _process_rt_reflections(RenderDataRD *p_render_data, Ref<RenderSceneBuffersRD> p_render_buffers, Ref<RenderBufferDataForwardClustered> p_rb_data, const RID *p_normal_roughness_slices);
+	void _process_rt_shadows(RenderDataRD *p_render_data, Ref<RenderSceneBuffersRD> p_render_buffers, Ref<RenderBufferDataForwardClustered> p_rb_data, const RID *p_normal_roughness_slices);
+	// RT Shadows Phase C: builds rt_shadow_array and rt_shadow_mapping before update_light_buffers.
+	void _prepare_rt_shadow_compositing(Ref<RenderSceneBuffersRD> p_render_buffers, RenderBufferDataForwardClustered *p_rb_data);
 
 	/* Debug */
 	void _debug_draw_cluster(Ref<RenderSceneBuffersRD> p_render_buffers);

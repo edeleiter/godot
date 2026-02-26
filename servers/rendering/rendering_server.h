@@ -1343,6 +1343,11 @@ public:
 
 	virtual void environment_set_ssil_quality(EnvironmentSSILQuality p_quality, bool p_half_size, float p_adaptive_target, int p_blur_passes, float p_fadeout_from, float p_fadeout_to) = 0;
 
+	// RT Effects (Phase B — Vulkan raytracing only; no-op on non-RT hardware)
+	virtual void environment_set_rt_reflections(RID p_env, bool p_enabled) = 0;
+	virtual void environment_set_rt_ao(RID p_env, bool p_enabled, float p_radius) = 0;
+	virtual void environment_set_rt_shadows(RID p_env, bool p_enabled) = 0;
+
 	enum EnvironmentSDFGIYScale {
 		ENV_SDFGI_Y_SCALE_50_PERCENT,
 		ENV_SDFGI_Y_SCALE_75_PERCENT,

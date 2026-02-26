@@ -33,6 +33,7 @@
 #include "core/config/project_settings.h"
 #include "servers/rendering/renderer_rd/effects/copy_effects.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
+#include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
 
@@ -40,12 +41,53 @@ using namespace RendererRD;
 
 SSEffects *SSEffects::singleton = nullptr;
 
+void SSEffects::RTShadowsHistoryEntry::free_gpu_resources() {
+	if (raw.is_valid()) {
+		RD::get_singleton()->free_rid(raw);
+		raw = RID();
+	}
+	if (accum_hist.is_valid()) {
+		RD::get_singleton()->free_rid(accum_hist);
+		accum_hist = RID();
+	}
+	if (accum_out.is_valid()) {
+		RD::get_singleton()->free_rid(accum_out);
+		accum_out = RID();
+	}
+}
+
 static _FORCE_INLINE_ void store_camera(const Projection &p_mtx, float *p_array) {
 	for (int i = 0; i < 4; i++) {
 		for (int j = 0; j < 4; j++) {
 			p_array[i * 4 + j] = p_mtx.columns[i][j];
 		}
 	}
+}
+
+// Store a Transform3D as a column-major 4x4 float array for GLSL (mat4).
+// The resulting matrix transforms from the local space to the world space of the transform.
+static _FORCE_INLINE_ void store_transform(const Transform3D &p_mtx, float *p_array) {
+	const Basis &b = p_mtx.basis;
+	// Column 0
+	p_array[0] = b.rows[0][0];
+	p_array[1] = b.rows[1][0];
+	p_array[2] = b.rows[2][0];
+	p_array[3] = 0.0f;
+	// Column 1
+	p_array[4] = b.rows[0][1];
+	p_array[5] = b.rows[1][1];
+	p_array[6] = b.rows[2][1];
+	p_array[7] = 0.0f;
+	// Column 2
+	p_array[8] = b.rows[0][2];
+	p_array[9] = b.rows[1][2];
+	p_array[10] = b.rows[2][2];
+	p_array[11] = 0.0f;
+	// Column 3 (translation)
+	p_array[12] = p_mtx.origin.x;
+	p_array[13] = p_mtx.origin.y;
+	p_array[14] = p_mtx.origin.z;
+	p_array[15] = 1.0f;
 }
 
 SSEffects::SSEffects() {
@@ -342,6 +384,11 @@ SSEffects::SSEffects() {
 		}
 	}
 
+	// RT pipeline/texture init is deferred to _ensure_rt_initialized() — called on
+	// first RT effect dispatch. This avoids submitting RT GPU work (pipeline creation,
+	// SBT buffers, cubemap uploads) during startup, which can crash the transfer
+	// worker queue with VK_ERROR_DEVICE_LOST on certain drivers.
+
 	// Subsurface scattering
 	sss_quality = RS::SubSurfaceScatteringQuality(int(GLOBAL_GET("rendering/environment/subsurface_scattering/subsurface_scattering_quality")));
 	sss_scale = GLOBAL_GET("rendering/environment/subsurface_scattering/subsurface_scattering_scale");
@@ -361,6 +408,120 @@ SSEffects::SSEffects() {
 			sss.pipelines[i].create_compute_pipeline(sss.shader.version_get_shader(sss.shader_version, i));
 		}
 	}
+}
+
+void SSEffects::_ensure_rt_initialized() {
+	if (rt_initialized) {
+		return;
+	}
+	rt_initialized = true;
+
+	if (!RD::get_singleton()->has_feature(RD::SUPPORTS_RAYTRACING_PIPELINE)) {
+		return;
+	}
+
+	print_verbose("SSEffects: Initializing RT pipelines...");
+
+	// RT Reflections — raytracing shader + compute accumulator
+	{
+		Vector<String> rt_modes;
+		rt_modes.push_back("\n");
+
+		rt_reflections.shader.initialize(rt_modes);
+		rt_reflections.shader_version = rt_reflections.shader.version_create();
+		RID rt_refl_shader_rid = rt_reflections.shader.version_get_shader(rt_reflections.shader_version, 0);
+		if (rt_refl_shader_rid.is_valid()) {
+			rt_reflections.pipeline = RD::get_singleton()->raytracing_pipeline_create(rt_refl_shader_rid);
+		}
+
+		rt_reflections.accumulate_shader.initialize(rt_modes);
+		rt_reflections.accumulate_shader_version = rt_reflections.accumulate_shader.version_create();
+		RID rt_refl_accum_shader_rid = rt_reflections.accumulate_shader.version_get_shader(rt_reflections.accumulate_shader_version, 0);
+		if (rt_refl_accum_shader_rid.is_valid()) {
+			rt_reflections.accumulate_pipeline = RD::get_singleton()->compute_pipeline_create(rt_refl_accum_shader_rid);
+		}
+	}
+
+	// RT Ambient Occlusion — raytracing shader + compute accumulator
+	{
+		Vector<String> rt_modes;
+		rt_modes.push_back("\n");
+
+		rt_ao.shader.initialize(rt_modes);
+		rt_ao.shader_version = rt_ao.shader.version_create();
+		RID rt_ao_shader_rid = rt_ao.shader.version_get_shader(rt_ao.shader_version, 0);
+		if (rt_ao_shader_rid.is_valid()) {
+			rt_ao.pipeline = RD::get_singleton()->raytracing_pipeline_create(rt_ao_shader_rid);
+		}
+
+		rt_ao.accumulate_shader.initialize(rt_modes);
+		rt_ao.accumulate_shader_version = rt_ao.accumulate_shader.version_create();
+		RID rt_ao_accum_shader_rid = rt_ao.accumulate_shader.version_get_shader(rt_ao.accumulate_shader_version, 0);
+		if (rt_ao_accum_shader_rid.is_valid()) {
+			rt_ao.accumulate_pipeline = RD::get_singleton()->compute_pipeline_create(rt_ao_accum_shader_rid);
+		}
+	}
+
+	// RT Shadows — raytracing shader + compute accumulator
+	{
+		Vector<String> rt_modes;
+		rt_modes.push_back("\n");
+
+		rt_shadows.shader.initialize(rt_modes);
+		rt_shadows.shader_version = rt_shadows.shader.version_create();
+		RID rt_shadow_shader_rid = rt_shadows.shader.version_get_shader(rt_shadows.shader_version, 0);
+		if (rt_shadow_shader_rid.is_valid()) {
+			rt_shadows.pipeline = RD::get_singleton()->raytracing_pipeline_create(rt_shadow_shader_rid);
+		}
+
+		rt_shadows.accumulate_shader.initialize(rt_modes);
+		rt_shadows.accumulate_shader_version = rt_shadows.accumulate_shader.version_create();
+		RID rt_shadow_accum_shader_rid = rt_shadows.accumulate_shader.version_get_shader(rt_shadows.accumulate_shader_version, 0);
+		if (rt_shadow_accum_shader_rid.is_valid()) {
+			rt_shadows.accumulate_pipeline = RD::get_singleton()->compute_pipeline_create(rt_shadow_accum_shader_rid);
+		}
+	}
+
+	rt_shaders_valid = rt_reflections.pipeline.is_valid() &&
+			rt_reflections.accumulate_pipeline.is_valid() &&
+			rt_ao.pipeline.is_valid() &&
+			rt_ao.accumulate_pipeline.is_valid() &&
+			rt_shadows.pipeline.is_valid() &&
+			rt_shadows.accumulate_pipeline.is_valid();
+	if (!rt_shaders_valid) {
+		WARN_PRINT("SSEffects: One or more RT pipelines failed to create — RT effects disabled.");
+		return;
+	}
+
+	print_verbose("SSEffects: RT pipelines created successfully.");
+
+	// Create a 1x1 black R16G16_SFLOAT STORAGE texture as a safe velocity fallback.
+	// Passed to accumulate passes when no velocity buffer exists, preventing Vulkan
+	// validation errors from an invalid image uniform binding.
+	// Note: engine default textures lack STORAGE_BIT, so we create our own.
+	{
+		print_verbose("SSEffects: Creating RT velocity fallback texture...");
+		RD::TextureFormat vel_fmt;
+		vel_fmt.format = RD::DATA_FORMAT_R16G16_SFLOAT;
+		vel_fmt.width = 1;
+		vel_fmt.height = 1;
+		vel_fmt.usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
+		rt_velocity_fallback = RD::get_singleton()->texture_create(vel_fmt, RD::TextureView());
+		RD::get_singleton()->set_resource_name(rt_velocity_fallback, "RT Velocity Fallback (1x1 black)");
+		RD::get_singleton()->texture_clear(rt_velocity_fallback, Color(0, 0, 0, 0), 0, 1, 0, 1);
+	}
+
+	// Use the engine's default 4x4 black cubemap as a safe sky fallback for
+	// rt_screen_reflection(). Avoids creating a custom 1x1 cubemap, which can
+	// trigger driver edge cases on certain GPUs during early init.
+	{
+		print_verbose("SSEffects: Caching engine default cubemap for RT sky fallback...");
+		TextureStorage *ts = TextureStorage::get_singleton();
+		ERR_FAIL_NULL(ts);
+		rt_sky_fallback_tex = ts->texture_rd_get_default(TextureStorage::DEFAULT_RD_TEXTURE_CUBEMAP_BLACK);
+	}
+
+	print_verbose("SSEffects: RT initialization complete.");
 }
 
 void SSEffects::allocate_last_frame_buffer(Ref<RenderSceneBuffersRD> p_render_buffers, bool p_use_ssil, bool p_use_ssr) {
@@ -493,6 +654,60 @@ SSEffects::~SSEffects() {
 
 		sss.shader.version_free(sss.shader_version);
 	}
+
+	// RT resources are only created when _ensure_rt_initialized() ran on RT-capable
+	// hardware. Use shader_version as a sentinel: if it's valid, shaders were
+	// initialized and need cleanup. This avoids noisy ERR_FAIL_NULL from
+	// version_free(RID()) when rt_initialized is true but hardware lacked RT support.
+	if (rt_reflections.shader_version.is_valid()) {
+		if (rt_reflections.pipeline.is_valid()) {
+			RD::get_singleton()->free_rid(rt_reflections.pipeline);
+		}
+		if (rt_reflections.accumulate_pipeline.is_valid()) {
+			RD::get_singleton()->free_rid(rt_reflections.accumulate_pipeline);
+		}
+		if (rt_reflections.instance_color_buffer.is_valid()) {
+			RD::get_singleton()->free_rid(rt_reflections.instance_color_buffer);
+		}
+		if (rt_reflections.scene_data_ubo.is_valid()) {
+			RD::get_singleton()->free_rid(rt_reflections.scene_data_ubo);
+		}
+		rt_reflections.shader.version_free(rt_reflections.shader_version);
+		rt_reflections.accumulate_shader.version_free(rt_reflections.accumulate_shader_version);
+	}
+
+	if (rt_ao.shader_version.is_valid()) {
+		if (rt_ao.pipeline.is_valid()) {
+			RD::get_singleton()->free_rid(rt_ao.pipeline);
+		}
+		if (rt_ao.accumulate_pipeline.is_valid()) {
+			RD::get_singleton()->free_rid(rt_ao.accumulate_pipeline);
+		}
+		if (rt_ao.scene_data_ubo.is_valid()) {
+			RD::get_singleton()->free_rid(rt_ao.scene_data_ubo);
+		}
+		rt_ao.shader.version_free(rt_ao.shader_version);
+		rt_ao.accumulate_shader.version_free(rt_ao.accumulate_shader_version);
+	}
+
+	if (rt_shadows.shader_version.is_valid()) {
+		if (rt_shadows.pipeline.is_valid()) {
+			RD::get_singleton()->free_rid(rt_shadows.pipeline);
+		}
+		if (rt_shadows.accumulate_pipeline.is_valid()) {
+			RD::get_singleton()->free_rid(rt_shadows.accumulate_pipeline);
+		}
+		if (rt_shadows.scene_data_ubo.is_valid()) {
+			RD::get_singleton()->free_rid(rt_shadows.scene_data_ubo);
+		}
+		rt_shadows.shader.version_free(rt_shadows.shader_version);
+		rt_shadows.accumulate_shader.version_free(rt_shadows.accumulate_shader_version);
+	}
+
+	if (rt_velocity_fallback.is_valid()) {
+		RD::get_singleton()->free_rid(rt_velocity_fallback);
+	}
+	// rt_sky_fallback_tex is an engine-owned default texture — do NOT free it.
 
 	singleton = nullptr;
 }
@@ -1812,4 +2027,501 @@ void SSEffects::sub_surface_scattering(Ref<RenderSceneBuffersRD> p_render_buffer
 
 		RD::get_singleton()->compute_list_end();
 	}
+}
+
+/* RT Ambient Occlusion */
+
+void SSEffects::rt_ao_allocate_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, uint32_t p_internal_width, uint32_t p_internal_height) {
+	// Allocate the shared scene data UBO once; it is updated each frame in rt_ambient_occlusion().
+	if (!rt_ao.scene_data_ubo.is_valid()) {
+		rt_ao.scene_data_ubo = RD::get_singleton()->uniform_buffer_create(sizeof(RTSceneDataUBO));
+		RD::get_singleton()->set_resource_name(rt_ao.scene_data_ubo, "RT AO Scene Data UBO");
+	}
+
+	Size2i size(p_internal_width, p_internal_height);
+
+	// Current-frame raygen write target (r8), cleared to 1.0 = fully unoccluded.
+	// CAN_COPY_TO_BIT: receives the accumulated result copy after each TAA pass.
+	if (!p_render_buffers->has_texture(RB_SCOPE_RTAO, RB_RT_CURRENT)) {
+		RID t = p_render_buffers->create_texture(RB_SCOPE_RTAO, RB_RT_CURRENT,
+				RD::DATA_FORMAT_R8_UNORM,
+				RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT,
+				RD::TEXTURE_SAMPLES_1, size);
+		RD::get_singleton()->texture_clear(t, Color(1, 1, 1, 1), 0, 1, 0, 1);
+	}
+
+	// History ping buffer (TAA history; sampled by accumulate pass).
+	// CAN_COPY_FROM_BIT: may serve as accum_output, which is copied to CURRENT each frame.
+	if (!p_render_buffers->has_texture(RB_SCOPE_RTAO, RB_RT_HISTORY)) {
+		RID t = p_render_buffers->create_texture(RB_SCOPE_RTAO, RB_RT_HISTORY,
+				RD::DATA_FORMAT_R8_UNORM,
+				RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT,
+				RD::TEXTURE_SAMPLES_1, size);
+		RD::get_singleton()->texture_clear(t, Color(1, 1, 1, 1), 0, 1, 0, 1);
+	}
+
+	// History pong buffer (accumulate output; ping-ponged with HISTORY each frame).
+	if (!p_render_buffers->has_texture(RB_SCOPE_RTAO, RB_RT_PING)) {
+		RID t = p_render_buffers->create_texture(RB_SCOPE_RTAO, RB_RT_PING,
+				RD::DATA_FORMAT_R8_UNORM,
+				RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT,
+				RD::TEXTURE_SAMPLES_1, size);
+		RD::get_singleton()->texture_clear(t, Color(1, 1, 1, 1), 0, 1, 0, 1);
+	}
+}
+
+void SSEffects::rt_ambient_occlusion(Ref<RenderSceneBuffersRD> p_render_buffers,
+		RID p_tlas, RID p_normal_roughness, RID p_depth, RID p_velocity,
+		float p_max_distance,
+		const Projection &p_projection, const Projection &p_reprojection,
+		const Transform3D &p_view_transform, uint32_t p_frame_index) {
+	_ensure_rt_initialized();
+	if (!rt_shaders_valid) {
+		return;
+	}
+
+	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
+	ERR_FAIL_NULL(uniform_set_cache);
+	MaterialStorage *material_storage = MaterialStorage::get_singleton();
+	ERR_FAIL_NULL(material_storage);
+
+	Size2i screen_size = p_render_buffers->get_internal_size();
+
+	// Upload scene data UBO (inv_projection, inv_view, reprojection, screen_size_inv).
+	RTSceneDataUBO ubo_data = {};
+	Projection correction;
+	correction.set_depth_correction(true);
+	Projection inv_proj = (correction * p_projection).inverse();
+	store_camera(inv_proj, ubo_data.inv_projection);
+	store_transform(p_view_transform, ubo_data.inv_view);
+	store_camera(p_reprojection, ubo_data.reprojection);
+	ubo_data.screen_size_inv[0] = 1.0f / screen_size.x;
+	ubo_data.screen_size_inv[1] = 1.0f / screen_size.y;
+	RD::get_singleton()->buffer_update(rt_ao.scene_data_ubo, 0, sizeof(RTSceneDataUBO), &ubo_data);
+
+	// Ping-pong: alternate which buffer serves as history vs accumulate output each frame.
+	bool ping = (p_frame_index % 2) == 0;
+	RID ao_current = p_render_buffers->get_texture(RB_SCOPE_RTAO, RB_RT_CURRENT);
+	RID accum_history = p_render_buffers->get_texture(RB_SCOPE_RTAO, ping ? RB_RT_HISTORY : RB_RT_PING);
+	RID accum_output = p_render_buffers->get_texture(RB_SCOPE_RTAO, ping ? RB_RT_PING : RB_RT_HISTORY);
+
+	RID default_sampler = material_storage->sampler_rd_get_default(RS::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RS::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
+
+	RD::get_singleton()->draw_command_begin_label("RT Ambient Occlusion");
+
+	// --- Raygen pass ---
+	RID rt_ao_shader = rt_ao.shader.version_get_shader(rt_ao.shader_version, 0);
+
+	RTAOPushConstant pc = {};
+	pc.screen_size[0] = screen_size.x;
+	pc.screen_size[1] = screen_size.y;
+	pc.frame_index = p_frame_index % 8;
+	pc.max_distance = p_max_distance;
+
+	RD::Uniform u_tlas(RD::UNIFORM_TYPE_ACCELERATION_STRUCTURE, 0, p_tlas);
+	RD::Uniform u_scene_data(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, rt_ao.scene_data_ubo);
+	RD::Uniform u_depth(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ default_sampler, p_depth }));
+	RD::Uniform u_normal(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ default_sampler, p_normal_roughness }));
+	RD::Uniform u_ao_out(RD::UNIFORM_TYPE_IMAGE, 0, ao_current);
+
+	RD::RaytracingListID rt_list = RD::get_singleton()->raytracing_list_begin();
+	RD::get_singleton()->raytracing_list_bind_raytracing_pipeline(rt_list, rt_ao.pipeline);
+	RD::get_singleton()->raytracing_list_bind_uniform_set(rt_list, uniform_set_cache->get_cache(rt_ao_shader, 0, u_tlas), 0);
+	RD::get_singleton()->raytracing_list_bind_uniform_set(rt_list, uniform_set_cache->get_cache(rt_ao_shader, 1, u_scene_data), 1);
+	RD::get_singleton()->raytracing_list_bind_uniform_set(rt_list, uniform_set_cache->get_cache(rt_ao_shader, 2, u_depth, u_normal), 2);
+	RD::get_singleton()->raytracing_list_bind_uniform_set(rt_list, uniform_set_cache->get_cache(rt_ao_shader, 3, u_ao_out), 3);
+	RD::get_singleton()->raytracing_list_set_push_constant(rt_list, &pc, sizeof(RTAOPushConstant));
+	RD::get_singleton()->raytracing_list_trace_rays(rt_list, screen_size.x, screen_size.y);
+	RD::get_singleton()->raytracing_list_end();
+
+	// --- Accumulate pass (compute) ---
+	RID accum_shader = rt_ao.accumulate_shader.version_get_shader(rt_ao.accumulate_shader_version, 0);
+
+	RTAOAccumulatePushConstant accum_pc = {};
+	accum_pc.screen_size[0] = screen_size.x;
+	accum_pc.screen_size[1] = screen_size.y;
+	accum_pc.temporal_blend = 0.125f; // 1/8-frame TAA accumulation
+	accum_pc.velocity_rejection_threshold = 0.01f;
+
+	RD::Uniform u_current_ro(RD::UNIFORM_TYPE_IMAGE, 0, ao_current);
+	RD::Uniform u_history_s(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ default_sampler, accum_history }));
+	RD::Uniform u_velocity(RD::UNIFORM_TYPE_IMAGE, 2, p_velocity.is_valid() ? p_velocity : rt_velocity_fallback);
+	RD::Uniform u_accum_out(RD::UNIFORM_TYPE_IMAGE, 3, accum_output);
+
+	RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
+	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, rt_ao.accumulate_pipeline);
+	RD::get_singleton()->compute_list_bind_uniform_set(compute_list,
+			uniform_set_cache->get_cache(accum_shader, 0, u_current_ro, u_history_s, u_velocity, u_accum_out), 0);
+	RD::get_singleton()->compute_list_set_push_constant(compute_list, &accum_pc, sizeof(RTAOAccumulatePushConstant));
+	RD::get_singleton()->compute_list_dispatch_threads(compute_list, screen_size.x, screen_size.y, 1);
+	RD::get_singleton()->compute_list_end();
+
+	// Copy the accumulated result back into RB_RT_CURRENT so the forward pass can read a
+	// stable accumulated AO value rather than the raw 1-SPP raygen noise.
+	RD::get_singleton()->texture_copy(accum_output, ao_current,
+			Vector3i(), Vector3i(), Vector3i(screen_size.x, screen_size.y, 1), 0, 0, 0, 0);
+
+	RD::get_singleton()->draw_command_end_label();
+}
+
+/* RT Reflections */
+
+void SSEffects::rt_reflections_allocate_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, uint32_t p_internal_width, uint32_t p_internal_height) {
+	// Allocate the shared scene data UBO once; updated each frame in rt_screen_reflection().
+	if (!rt_reflections.scene_data_ubo.is_valid()) {
+		rt_reflections.scene_data_ubo = RD::get_singleton()->uniform_buffer_create(sizeof(RTSceneDataUBO));
+		RD::get_singleton()->set_resource_name(rt_reflections.scene_data_ubo, "RT Reflections Scene Data UBO");
+	}
+
+	Size2i size(p_internal_width, p_internal_height);
+
+	// Current-frame raw reflection color (rgba16f, raygen writes here).
+	// CAN_COPY_TO_BIT: receives the accumulated result copy after each TAA pass.
+	if (!p_render_buffers->has_texture(RB_SCOPE_RTREFL, RB_RT_CURRENT)) {
+		RID t = p_render_buffers->create_texture(RB_SCOPE_RTREFL, RB_RT_CURRENT,
+				RD::DATA_FORMAT_R16G16B16A16_SFLOAT,
+				RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT,
+				RD::TEXTURE_SAMPLES_1, size);
+		RD::get_singleton()->texture_clear(t, Color(0, 0, 0, 0), 0, 1, 0, 1);
+	}
+
+	// TAA history ping buffer.
+	// CAN_COPY_FROM_BIT: may serve as accum_output, which is copied to CURRENT each frame.
+	if (!p_render_buffers->has_texture(RB_SCOPE_RTREFL, RB_RT_HISTORY)) {
+		RID t = p_render_buffers->create_texture(RB_SCOPE_RTREFL, RB_RT_HISTORY,
+				RD::DATA_FORMAT_R16G16B16A16_SFLOAT,
+				RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT,
+				RD::TEXTURE_SAMPLES_1, size);
+		RD::get_singleton()->texture_clear(t, Color(0, 0, 0, 0), 0, 1, 0, 1);
+	}
+
+	// TAA history pong buffer (accumulate output; ping-ponged with HISTORY each frame).
+	if (!p_render_buffers->has_texture(RB_SCOPE_RTREFL, RB_RT_PING)) {
+		RID t = p_render_buffers->create_texture(RB_SCOPE_RTREFL, RB_RT_PING,
+				RD::DATA_FORMAT_R16G16B16A16_SFLOAT,
+				RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT,
+				RD::TEXTURE_SAMPLES_1, size);
+		RD::get_singleton()->texture_clear(t, Color(0, 0, 0, 0), 0, 1, 0, 1);
+	}
+}
+
+void SSEffects::rt_screen_reflection(Ref<RenderSceneBuffersRD> p_render_buffers,
+		RID p_tlas, RID p_sky_texture, RID p_normal_roughness, RID p_depth, RID p_velocity,
+		const Vector<Color> &p_instance_base_colors,
+		RTReflectionQuality p_quality,
+		const Projection &p_projection, const Projection &p_reprojection,
+		const Transform3D &p_view_transform, uint32_t p_frame_index,
+		uint32_t p_tlas_instance_count) {
+	_ensure_rt_initialized();
+	if (!rt_shaders_valid) {
+		return;
+	}
+
+	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
+	ERR_FAIL_NULL(uniform_set_cache);
+	MaterialStorage *material_storage = MaterialStorage::get_singleton();
+	ERR_FAIL_NULL(material_storage);
+
+	Size2i screen_size = p_render_buffers->get_internal_size();
+
+	// Upload scene data UBO.
+	RTSceneDataUBO ubo_data = {};
+	Projection correction;
+	correction.set_depth_correction(true);
+	Projection inv_proj = (correction * p_projection).inverse();
+	store_camera(inv_proj, ubo_data.inv_projection);
+	store_transform(p_view_transform, ubo_data.inv_view);
+	store_camera(p_reprojection, ubo_data.reprojection);
+	ubo_data.screen_size_inv[0] = 1.0f / screen_size.x;
+	ubo_data.screen_size_inv[1] = 1.0f / screen_size.y;
+	RD::get_singleton()->buffer_update(rt_reflections.scene_data_ubo, 0, sizeof(RTSceneDataUBO), &ubo_data);
+
+	// Upload per-instance base colors to the SSBO every frame.
+	// The closest-hit shader indexes this buffer with gl_InstanceCustomIndexEXT, so the
+	// buffer must have at least as many entries as there are TLAS instances or the shader
+	// will read out-of-bounds GPU memory, causing VK_ERROR_DEVICE_LOST.
+	uint32_t required_count = MAX(1u, p_tlas_instance_count);
+
+	// Build CPU-side color data from the RTSceneManager's per-entry albedo colors.
+	Vector<uint8_t> data;
+	data.resize(required_count * sizeof(float) * 4);
+	for (uint32_t i = 0; i < required_count; i++) {
+		float *ptr = reinterpret_cast<float *>(data.ptrw() + i * 16);
+		if (i < (uint32_t)p_instance_base_colors.size()) {
+			Color c = p_instance_base_colors[i];
+			ptr[0] = c.r;
+			ptr[1] = c.g;
+			ptr[2] = c.b;
+			ptr[3] = 1.0f;
+		} else {
+			ptr[0] = ptr[1] = ptr[2] = ptr[3] = 1.0f; // fallback white
+		}
+	}
+
+	// Recreate buffer if size changed, otherwise update in-place.
+	if (!rt_reflections.instance_color_buffer.is_valid() ||
+			rt_reflections.instance_color_buffer_count != required_count) {
+		if (rt_reflections.instance_color_buffer.is_valid()) {
+			RD::get_singleton()->free_rid(rt_reflections.instance_color_buffer);
+		}
+		rt_reflections.instance_color_buffer =
+				RD::get_singleton()->storage_buffer_create(data.size(), data);
+		RD::get_singleton()->set_resource_name(rt_reflections.instance_color_buffer,
+				"RT Reflections Instance Colors");
+		rt_reflections.instance_color_buffer_count = required_count;
+	} else {
+		RD::get_singleton()->buffer_update(rt_reflections.instance_color_buffer, 0, data.size(), data.ptr());
+	}
+
+	// Ping-pong history buffers.
+	bool ping = (p_frame_index % 2) == 0;
+	RID refl_current = p_render_buffers->get_texture(RB_SCOPE_RTREFL, RB_RT_CURRENT);
+	RID accum_history = p_render_buffers->get_texture(RB_SCOPE_RTREFL, ping ? RB_RT_HISTORY : RB_RT_PING);
+	RID accum_output = p_render_buffers->get_texture(RB_SCOPE_RTREFL, ping ? RB_RT_PING : RB_RT_HISTORY);
+
+	RID default_sampler = material_storage->sampler_rd_get_default(RS::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RS::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
+	RID linear_mip_sampler = material_storage->sampler_rd_get_default(RS::CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS, RS::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
+
+	RD::get_singleton()->draw_command_begin_label("RT Screen Reflections");
+
+	// --- Raygen pass ---
+	RID rt_refl_shader = rt_reflections.shader.version_get_shader(rt_reflections.shader_version, 0);
+
+	RTReflectionsPushConstant pc = {};
+	pc.screen_size[0] = screen_size.x;
+	pc.screen_size[1] = screen_size.y;
+	pc.quality = (uint32_t)p_quality;
+	pc.frame_index = p_frame_index;
+	pc.roughness_cutoff = (p_quality == RT_REFLECTION_QUALITY_LOW) ? 0.2f : 0.6f;
+
+	// Set 0: TLAS + sky cubemap.
+	// Use rt_sky_fallback_tex when p_sky_texture is invalid (no sky configured).
+	// A null sky RID causes uniform_set_create() to fail, leaving set 0
+	// unbound and crashing the GPU with VK_ERROR_DEVICE_LOST.
+	RID sky_tex = p_sky_texture.is_valid() ? p_sky_texture : rt_sky_fallback_tex;
+	RD::Uniform u_tlas(RD::UNIFORM_TYPE_ACCELERATION_STRUCTURE, 0, p_tlas);
+	RD::Uniform u_sky(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ linear_mip_sampler, sky_tex }));
+	// Set 1: scene data UBO
+	RD::Uniform u_scene_data(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, rt_reflections.scene_data_ubo);
+	// Set 2: G-buffer inputs
+	RD::Uniform u_depth(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ default_sampler, p_depth }));
+	RD::Uniform u_normal(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ default_sampler, p_normal_roughness }));
+	// Set 3: raw color output
+	RD::Uniform u_refl_out(RD::UNIFORM_TYPE_IMAGE, 0, refl_current);
+	// Set 4: instance base colors SSBO
+	RD::Uniform u_instance_colors(RD::UNIFORM_TYPE_STORAGE_BUFFER, 0, rt_reflections.instance_color_buffer);
+
+	RD::RaytracingListID rt_list = RD::get_singleton()->raytracing_list_begin();
+	RD::get_singleton()->raytracing_list_bind_raytracing_pipeline(rt_list, rt_reflections.pipeline);
+	RD::get_singleton()->raytracing_list_bind_uniform_set(rt_list, uniform_set_cache->get_cache(rt_refl_shader, 0, u_tlas, u_sky), 0);
+	RD::get_singleton()->raytracing_list_bind_uniform_set(rt_list, uniform_set_cache->get_cache(rt_refl_shader, 1, u_scene_data), 1);
+	RD::get_singleton()->raytracing_list_bind_uniform_set(rt_list, uniform_set_cache->get_cache(rt_refl_shader, 2, u_depth, u_normal), 2);
+	RD::get_singleton()->raytracing_list_bind_uniform_set(rt_list, uniform_set_cache->get_cache(rt_refl_shader, 3, u_refl_out), 3);
+	RD::get_singleton()->raytracing_list_bind_uniform_set(rt_list, uniform_set_cache->get_cache(rt_refl_shader, 4, u_instance_colors), 4);
+	RD::get_singleton()->raytracing_list_set_push_constant(rt_list, &pc, sizeof(RTReflectionsPushConstant));
+	RD::get_singleton()->raytracing_list_trace_rays(rt_list, screen_size.x, screen_size.y);
+	RD::get_singleton()->raytracing_list_end();
+
+	// --- Accumulate pass (compute) ---
+	RID accum_shader = rt_reflections.accumulate_shader.version_get_shader(rt_reflections.accumulate_shader_version, 0);
+
+	RTReflectionsAccumulatePushConstant accum_pc = {};
+	accum_pc.screen_size[0] = screen_size.x;
+	accum_pc.screen_size[1] = screen_size.y;
+	accum_pc.temporal_blend = 0.1f; // ~10-frame TAA accumulation
+	accum_pc.velocity_rejection_threshold = 0.01f;
+
+	RD::Uniform u_current_ro(RD::UNIFORM_TYPE_IMAGE, 0, refl_current);
+	RD::Uniform u_history_s(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ default_sampler, accum_history }));
+	RD::Uniform u_velocity(RD::UNIFORM_TYPE_IMAGE, 2, p_velocity.is_valid() ? p_velocity : rt_velocity_fallback);
+	RD::Uniform u_accum_out(RD::UNIFORM_TYPE_IMAGE, 3, accum_output);
+
+	RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
+	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, rt_reflections.accumulate_pipeline);
+	RD::get_singleton()->compute_list_bind_uniform_set(compute_list,
+			uniform_set_cache->get_cache(accum_shader, 0, u_current_ro, u_history_s, u_velocity, u_accum_out), 0);
+	RD::get_singleton()->compute_list_set_push_constant(compute_list, &accum_pc, sizeof(RTReflectionsAccumulatePushConstant));
+	RD::get_singleton()->compute_list_dispatch_threads(compute_list, screen_size.x, screen_size.y, 1);
+	RD::get_singleton()->compute_list_end();
+
+	// Copy the accumulated result back into RB_RT_CURRENT so the forward pass can read
+	// a stable temporally-accumulated reflection rather than raw 1-SPP raygen output.
+	RD::get_singleton()->texture_copy(accum_output, refl_current,
+			Vector3i(), Vector3i(), Vector3i(screen_size.x, screen_size.y, 1), 0, 0, 0, 0);
+
+	RD::get_singleton()->draw_command_end_label();
+}
+
+/* RT Shadows */
+
+void SSEffects::rt_shadow_allocate_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, uint32_t p_internal_width, uint32_t p_internal_height) {
+	// Allocate the shared scene data UBO once; it is updated each frame in rt_shadow_dispatch().
+	if (!rt_shadows.scene_data_ubo.is_valid()) {
+		rt_shadows.scene_data_ubo = RD::get_singleton()->uniform_buffer_create(sizeof(RTSceneDataUBO));
+		RD::get_singleton()->set_resource_name(rt_shadows.scene_data_ubo, "RT Shadows Scene Data UBO");
+	}
+	// Note: per-light history textures are managed in an LRU pool inside rt_shadow_dispatch()
+	// because the set of visible shadow-casting lights is only known at dispatch time.
+}
+
+void SSEffects::rt_shadow_dispatch(Ref<RenderSceneBuffersRD> p_render_buffers,
+		RTShadowsRenderBuffers &p_rt_shadow_buffers,
+		RID p_tlas, RID p_depth, RID p_normal_roughness, RID p_velocity,
+		RID p_light, RTShadowsLightType p_light_type,
+		const Vector3 &p_light_direction, const Vector3 &p_light_position,
+		float p_light_range, float p_sun_disk_angle, float p_spot_angle,
+		const Projection &p_projection, const Projection &p_reprojection,
+		const Transform3D &p_view_transform,
+		uint32_t p_frame_index, uint64_t p_current_frame) {
+	_ensure_rt_initialized();
+	if (!rt_shaders_valid) {
+		return;
+	}
+
+	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
+	ERR_FAIL_NULL(uniform_set_cache);
+	MaterialStorage *material_storage = MaterialStorage::get_singleton();
+	ERR_FAIL_NULL(material_storage);
+
+	Size2i screen_size = p_render_buffers->get_internal_size();
+
+	ERR_FAIL_COND_MSG(!rt_shadows.scene_data_ubo.is_valid(), "RT Shadows scene_data_ubo not allocated — call rt_shadow_allocate_buffers() first.");
+
+	// Upload scene data UBO (same camera for all lights this frame).
+	RTSceneDataUBO ubo_data = {};
+	Projection correction;
+	correction.set_depth_correction(true);
+	Projection inv_proj = (correction * p_projection).inverse();
+	store_camera(inv_proj, ubo_data.inv_projection);
+	store_transform(p_view_transform, ubo_data.inv_view);
+	store_camera(p_reprojection, ubo_data.reprojection);
+	ubo_data.screen_size_inv[0] = 1.0f / screen_size.x;
+	ubo_data.screen_size_inv[1] = 1.0f / screen_size.y;
+	RD::get_singleton()->buffer_update(rt_shadows.scene_data_ubo, 0, sizeof(RTSceneDataUBO), &ubo_data);
+
+	// --- LRU pool management ---
+	// Evict the oldest entry (outside grace period) when the pool is full.
+	if ((int)p_rt_shadow_buffers.history_pool.size() >= RTShadowsRenderBuffers::MAX_HISTORY_ENTRIES) {
+		RID oldest_light;
+		uint64_t oldest_frame = UINT64_MAX;
+		for (const KeyValue<RID, RTShadowsHistoryEntry> &kv : p_rt_shadow_buffers.history_pool) {
+			uint64_t age = p_current_frame - kv.value.last_used_frame;
+			if (age > RTShadowsRenderBuffers::EVICTION_GRACE_FRAMES && kv.value.last_used_frame < oldest_frame) {
+				oldest_frame = kv.value.last_used_frame;
+				oldest_light = kv.key;
+			}
+		}
+		if (oldest_light.is_valid()) {
+			RTShadowsHistoryEntry &evicted = p_rt_shadow_buffers.history_pool[oldest_light];
+			evicted.free_gpu_resources();
+			p_rt_shadow_buffers.history_pool.erase(oldest_light);
+		}
+	}
+
+	// Get or create the history entry for this light.
+	RTShadowsHistoryEntry *entry = p_rt_shadow_buffers.history_pool.getptr(p_light);
+	if (entry == nullptr) {
+		// Pool still full (all entries within grace period): skip this light this frame.
+		if ((int)p_rt_shadow_buffers.history_pool.size() >= RTShadowsRenderBuffers::MAX_HISTORY_ENTRIES) {
+			return;
+		}
+
+		RTShadowsHistoryEntry new_entry;
+		new_entry.last_used_frame = p_current_frame;
+
+		RD::TextureFormat fmt;
+		fmt.format = RD::DATA_FORMAT_R8_UNORM;
+		fmt.width = screen_size.x;
+		fmt.height = screen_size.y;
+		fmt.usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT |
+				RD::TEXTURE_USAGE_CAN_COPY_TO_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
+
+		new_entry.raw = RD::get_singleton()->texture_create(fmt, RD::TextureView());
+		RD::get_singleton()->set_resource_name(new_entry.raw, "RT Shadow Raw");
+		RD::get_singleton()->texture_clear(new_entry.raw, Color(1, 1, 1, 1), 0, 1, 0, 1);
+
+		new_entry.accum_hist = RD::get_singleton()->texture_create(fmt, RD::TextureView());
+		RD::get_singleton()->set_resource_name(new_entry.accum_hist, "RT Shadow Accum Hist");
+		RD::get_singleton()->texture_clear(new_entry.accum_hist, Color(1, 1, 1, 1), 0, 1, 0, 1);
+
+		new_entry.accum_out = RD::get_singleton()->texture_create(fmt, RD::TextureView());
+		RD::get_singleton()->set_resource_name(new_entry.accum_out, "RT Shadow Accum Out");
+		RD::get_singleton()->texture_clear(new_entry.accum_out, Color(1, 1, 1, 1), 0, 1, 0, 1);
+
+		p_rt_shadow_buffers.history_pool.insert(p_light, new_entry);
+		entry = p_rt_shadow_buffers.history_pool.getptr(p_light);
+	}
+	entry->last_used_frame = p_current_frame;
+
+	RID default_sampler = material_storage->sampler_rd_get_default(RS::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RS::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
+
+	RD::get_singleton()->draw_command_begin_label("RT Shadow Dispatch");
+
+	// --- Raygen pass ---
+	RID rt_shadows_shader = rt_shadows.shader.version_get_shader(rt_shadows.shader_version, 0);
+
+	RTShadowsPushConstant pc = {};
+	pc.screen_size[0] = screen_size.x;
+	pc.screen_size[1] = screen_size.y;
+	pc.light_type = (uint32_t)p_light_type;
+	pc.frame_index = p_frame_index;
+	pc.light_direction[0] = p_light_direction.x;
+	pc.light_direction[1] = p_light_direction.y;
+	pc.light_direction[2] = p_light_direction.z;
+	pc.light_range = p_light_range;
+	pc.light_position[0] = p_light_position.x;
+	pc.light_position[1] = p_light_position.y;
+	pc.light_position[2] = p_light_position.z;
+	pc.sun_disk_angle = p_sun_disk_angle;
+	pc.spot_angle = p_spot_angle;
+	pc.temporal_blend = 0.25f; // stored in push constant padding; unused by raygen shader
+
+	// Set 0: TLAS
+	RD::Uniform u_tlas(RD::UNIFORM_TYPE_ACCELERATION_STRUCTURE, 0, p_tlas);
+	// Set 1: scene data UBO
+	RD::Uniform u_scene_data(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, rt_shadows.scene_data_ubo);
+	// Set 2: depth + normal_roughness (normal is needed for ray origin bias to prevent shadow acne)
+	RD::Uniform u_depth(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ default_sampler, p_depth }));
+	RD::Uniform u_normal(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ default_sampler, p_normal_roughness }));
+	// Set 3: shadow mask output
+	RD::Uniform u_shadow_out(RD::UNIFORM_TYPE_IMAGE, 0, entry->raw);
+
+	RD::RaytracingListID rt_list = RD::get_singleton()->raytracing_list_begin();
+	RD::get_singleton()->raytracing_list_bind_raytracing_pipeline(rt_list, rt_shadows.pipeline);
+	RD::get_singleton()->raytracing_list_bind_uniform_set(rt_list, uniform_set_cache->get_cache(rt_shadows_shader, 0, u_tlas), 0);
+	RD::get_singleton()->raytracing_list_bind_uniform_set(rt_list, uniform_set_cache->get_cache(rt_shadows_shader, 1, u_scene_data), 1);
+	RD::get_singleton()->raytracing_list_bind_uniform_set(rt_list, uniform_set_cache->get_cache(rt_shadows_shader, 2, u_depth, u_normal), 2);
+	RD::get_singleton()->raytracing_list_bind_uniform_set(rt_list, uniform_set_cache->get_cache(rt_shadows_shader, 3, u_shadow_out), 3);
+	RD::get_singleton()->raytracing_list_set_push_constant(rt_list, &pc, sizeof(RTShadowsPushConstant));
+	RD::get_singleton()->raytracing_list_trace_rays(rt_list, screen_size.x, screen_size.y);
+	RD::get_singleton()->raytracing_list_end();
+
+	// --- Accumulate pass (compute) ---
+	// Ping-pong: accum_hist is the read history, accum_out is the write target.
+	// After the pass, swap them so next frame reads this frame's output as history.
+	RID accum_shader = rt_shadows.accumulate_shader.version_get_shader(rt_shadows.accumulate_shader_version, 0);
+
+	RTShadowsAccumulatePushConstant accum_pc = {};
+	accum_pc.screen_size[0] = screen_size.x;
+	accum_pc.screen_size[1] = screen_size.y;
+	accum_pc.temporal_blend = 0.25f; // 4-frame shadow accumulation
+	accum_pc.velocity_rejection_threshold = 0.01f;
+
+	RD::Uniform u_raw_ro(RD::UNIFORM_TYPE_IMAGE, 0, entry->raw);
+	RD::Uniform u_hist_s(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ default_sampler, entry->accum_hist }));
+	RD::Uniform u_velocity(RD::UNIFORM_TYPE_IMAGE, 2, p_velocity.is_valid() ? p_velocity : rt_velocity_fallback);
+	RD::Uniform u_accum_out(RD::UNIFORM_TYPE_IMAGE, 3, entry->accum_out);
+
+	RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
+	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, rt_shadows.accumulate_pipeline);
+	RD::get_singleton()->compute_list_bind_uniform_set(compute_list,
+			uniform_set_cache->get_cache(accum_shader, 0, u_raw_ro, u_hist_s, u_velocity, u_accum_out), 0);
+	RD::get_singleton()->compute_list_set_push_constant(compute_list, &accum_pc, sizeof(RTShadowsAccumulatePushConstant));
+	RD::get_singleton()->compute_list_dispatch_threads(compute_list, screen_size.x, screen_size.y, 1);
+	RD::get_singleton()->compute_list_end();
+
+	// Swap accum_hist <-> accum_out so next frame reads this frame's accumulated result as history.
+	SWAP(entry->accum_hist, entry->accum_out);
+
+	RD::get_singleton()->draw_command_end_label();
 }

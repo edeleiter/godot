@@ -179,6 +179,16 @@ private:
 		float adjustments_saturation = 1.0f;
 		bool use_1d_color_correction = false;
 		RID color_correction;
+
+		// RT Reflections (Phase B)
+		bool rt_reflections_enabled = false;
+
+		// RT Ambient Occlusion (Phase B)
+		bool rt_ao_enabled = false;
+		float rt_ao_radius = 1.0f;
+
+		// RT Shadows (Phase B)
+		bool rt_shadows_enabled = false;
 	};
 
 	mutable RID_Owner<Environment, true> environment_owner;
@@ -332,4 +342,17 @@ public:
 	float environment_get_adjustments_saturation(RID p_env) const;
 	bool environment_get_use_1d_color_correction(RID p_env) const;
 	RID environment_get_color_correction(RID p_env) const;
+
+	// RT Reflections
+	void environment_set_rt_reflections(RID p_env, bool p_enabled);
+	bool environment_get_rt_reflections_enabled(RID p_env) const;
+
+	// RT Ambient Occlusion
+	void environment_set_rt_ao(RID p_env, bool p_enabled, float p_radius);
+	bool environment_get_rt_ao_enabled(RID p_env) const;
+	float environment_get_rt_ao_radius(RID p_env) const;
+
+	// RT Shadows
+	void environment_set_rt_shadows(RID p_env, bool p_enabled);
+	bool environment_get_rt_shadows_enabled(RID p_env) const;
 };

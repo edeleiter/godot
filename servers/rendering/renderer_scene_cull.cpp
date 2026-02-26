@@ -546,7 +546,9 @@ void RendererSceneCull::_instance_update_mesh_instance(Instance *p_instance) con
 	if (needs_instance != p_instance->mesh_instance.is_valid()) {
 		if (needs_instance) {
 			p_instance->mesh_instance = RSG::mesh_storage->mesh_instance_create(p_instance->base);
-
+			// Mark this instance as deformable in the RT scene manager so its BLAS is updated
+			// each frame AFTER GPU skinning runs (C2 fix: rt_update_deformable is called post-skinning).
+			scene_render->rt_mark_instance_deformable(p_instance->self, p_instance->mesh_instance);
 		} else {
 			RSG::mesh_storage->mesh_instance_free(p_instance->mesh_instance);
 			p_instance->mesh_instance = RID();
@@ -3471,6 +3473,9 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 				RSG::mesh_storage->mesh_instance_check_for_update(scene_cull_result.mesh_instances[i]);
 			}
 			RSG::mesh_storage->update_mesh_instances();
+			// C2 fix: update deformable BLASes AFTER GPU skinning has written deformed vertices.
+			// rt_update() (called earlier in update()) handles static geometry only.
+			scene_render->rt_update_deformable();
 		}
 	}
 

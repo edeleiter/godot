@@ -2363,7 +2363,16 @@ void MeshStorage::build_pending_blas_surfaces() {
 			}
 
 			RID index_arr = s->index_array;
-			s->blas = rd->blas_create(s->blas_vertex_array, index_arr, RD::ACCELERATION_STRUCTURE_GEOMETRY_OPAQUE, 0);
+			// Deformable surfaces (skinned or blend-shape) need BLAS update capability per frame.
+			bool is_deformable = (mesh->blend_shape_count > 0 || mesh->has_bone_weights);
+			BitField<RD::AccelerationStructureGeometryBits> blas_flags = RD::ACCELERATION_STRUCTURE_GEOMETRY_OPAQUE;
+			if (is_deformable) {
+				blas_flags.set_flag(RD::ACCELERATION_STRUCTURE_GEOMETRY_ALLOW_UPDATE);
+			}
+			s->blas = rd->blas_create(s->blas_vertex_array, index_arr, blas_flags, 0);
+			if (s->blas.is_valid()) {
+				s->blas_allow_update = is_deformable;
+			}
 			if (!s->blas.is_valid()) {
 				rd->free_rid(s->blas_vertex_array);
 				s->blas_vertex_array = RID();

@@ -146,6 +146,7 @@ private:
 	Dictionary _tool_capture_screenshot(const Dictionary &p_args);
 	Dictionary _tool_runtime_camera_control(const Dictionary &p_args);
 	Dictionary _tool_get_runtime_camera_info(const Dictionary &p_args);
+	Dictionary _tool_wait(const Dictionary &p_args);
 
 	// Tool implementations — Editor
 	Dictionary _tool_get_editor_log(const Dictionary &p_args);

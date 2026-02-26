@@ -941,3 +941,52 @@ RID RendererEnvironmentStorage::environment_get_color_correction(RID p_env) cons
 	ERR_FAIL_NULL_V(env, RID());
 	return env->color_correction;
 }
+
+// RT Reflections
+
+void RendererEnvironmentStorage::environment_set_rt_reflections(RID p_env, bool p_enabled) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->rt_reflections_enabled = p_enabled;
+}
+
+bool RendererEnvironmentStorage::environment_get_rt_reflections_enabled(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, false);
+	return env->rt_reflections_enabled;
+}
+
+// RT Ambient Occlusion
+
+void RendererEnvironmentStorage::environment_set_rt_ao(RID p_env, bool p_enabled, float p_radius) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->rt_ao_enabled = p_enabled;
+	env->rt_ao_radius = p_radius;
+}
+
+bool RendererEnvironmentStorage::environment_get_rt_ao_enabled(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, false);
+	return env->rt_ao_enabled;
+}
+
+float RendererEnvironmentStorage::environment_get_rt_ao_radius(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 1.0f);
+	return env->rt_ao_radius;
+}
+
+// RT Shadows
+
+void RendererEnvironmentStorage::environment_set_rt_shadows(RID p_env, bool p_enabled) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->rt_shadows_enabled = p_enabled;
+}
+
+bool RendererEnvironmentStorage::environment_get_rt_shadows_enabled(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, false);
+	return env->rt_shadows_enabled;
+}

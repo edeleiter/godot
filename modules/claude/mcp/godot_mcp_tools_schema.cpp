@@ -105,19 +105,19 @@ Dictionary GodotMCPServer::_handle_tools_list(const Dictionary &p_params) {
 
 	Array set_prop_params;
 	set_prop_params.push_back(Dictionary{ { "name", "node_path" }, { "type", "string" }, { "description", "Path to the node" }, { "required", true } });
-	set_prop_params.push_back(Dictionary{ { "name", "property" }, { "type", "string" }, { "description", "Property name" }, { "required", true } });
+	set_prop_params.push_back(Dictionary{ { "name", "property" }, { "type", "string" }, { "description", "Property name. Use colon syntax for sub-resource properties (e.g., 'environment:rt_reflections_enabled', 'mesh:material:albedo_color')" }, { "required", true } });
 	set_prop_params.push_back(Dictionary{ { "name", "value" }, { "description", "New property value (as JSON)" }, { "required", true } });
 	tools.push_back(_define_tool(
 			"godot_set_property",
-			"Set a property on a node",
+			"Set a property on a node. Supports colon-separated sub-resource paths (e.g., 'environment:background_mode').",
 			_make_schema(set_prop_params)));
 
 	Array get_prop_params;
 	get_prop_params.push_back(Dictionary{ { "name", "node_path" }, { "type", "string" }, { "description", "Path to the node" }, { "required", true } });
-	get_prop_params.push_back(Dictionary{ { "name", "property" }, { "type", "string" }, { "description", "Property name" }, { "required", true } });
+	get_prop_params.push_back(Dictionary{ { "name", "property" }, { "type", "string" }, { "description", "Property name. Use colon syntax for sub-resource properties (e.g., 'environment:rt_reflections_enabled')" }, { "required", true } });
 	tools.push_back(_define_tool(
 			"godot_get_property",
-			"Get a property value from a node",
+			"Get a property value from a node. Supports colon-separated sub-resource paths.",
 			_make_schema(get_prop_params)));
 
 	// Scene persistence tools.
@@ -242,6 +242,14 @@ Dictionary GodotMCPServer::_handle_tools_list(const Dictionary &p_params) {
 			"godot_stop_scene",
 			"Stop the running scene",
 			Dictionary()));
+
+	// Wait tool.
+	Array wait_params;
+	wait_params.push_back(Dictionary{ { "name", "duration_ms" }, { "type", "integer" }, { "description", "Wall-clock time to wait in milliseconds (100-10000, default 1000). Editor continues processing events during wait." }, { "required", false } });
+	tools.push_back(_define_tool(
+			"godot_wait",
+			"Wait for a specified duration while keeping the editor responsive. Useful for temporal convergence of RT effects or waiting for game to initialize after godot_run_scene.",
+			_make_schema(wait_params)));
 
 	// Runtime inspection tools.
 	tools.push_back(_define_tool(

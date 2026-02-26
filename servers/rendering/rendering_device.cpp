@@ -279,6 +279,9 @@ RID RenderingDevice::blas_create(RID p_vertex_array, RID p_index_array, BitField
 	if (p_geometry_bits.has_flag(ACCELERATION_STRUCTURE_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION)) {
 		geometry_bits.set_flag(RDD::ACCELERATION_STRUCTURE_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION);
 	}
+	if (p_geometry_bits.has_flag(ACCELERATION_STRUCTURE_GEOMETRY_ALLOW_UPDATE)) {
+		geometry_bits.set_flag(RDD::ACCELERATION_STRUCTURE_GEOMETRY_ALLOW_UPDATE);
+	}
 
 	acceleration_structure.driver_id = driver->blas_create(vertex_buffer, vertex_offset, vertex_format, vertex_array->vertex_count, p_position_attribute_location, index_buffer, index_format, index_offset_bytes, index_count, geometry_bits);
 	ERR_FAIL_COND_V_MSG(!acceleration_structure.driver_id, RID(), "Failed to create BLAS.");
@@ -387,6 +390,15 @@ void RenderingDevice::tlas_instances_buffer_fill(RID p_instances_buffer, const V
 
 	instances_buffer->blases = p_blases;
 
+	// TODO (RT sync): This is a CPU (host) write via buffer_map/memcpy/buffer_unmap.
+	// It is invisible to the draw graph — instances_buffer.buffer.draw_tracker is null.
+	// The vkQueueSubmit implicit HOST_WRITE → ALL_COMMANDS barrier (Vulkan spec §6.9)
+	// ensures the TLAS build sees the written data as long as this function is called
+	// before the frame's command buffer is submitted, which it always is (called from
+	// rt_update() during RSG::scene->update() well before draw_graph.flush_execution()).
+	// Proper fix: change instances buffer to MEMORY_ALLOCATION_TYPE_GPU, pack the
+	// VkAccelerationStructureInstanceKHR data at RD level, upload via buffer_update(),
+	// and add the buffer's draw_tracker to the TLAS draw_trackers in tlas_create().
 	driver->tlas_instances_buffer_fill(instances_buffer->buffer.driver_id, blases, p_transforms);
 }
 
@@ -458,6 +470,66 @@ Error RenderingDevice::acceleration_structure_build(RID p_acceleration_structure
 	}
 
 	draw_graph.add_acceleration_structure_build(accel->driver_id, scratch_buffer->driver_id, accel->draw_tracker, accel->draw_trackers);
+
+	return OK;
+}
+
+Error RenderingDevice::acceleration_structure_update(RID p_acceleration_structure, RID p_deformed_vertex_buffer) {
+	ERR_RENDER_THREAD_GUARD_V(ERR_UNAVAILABLE);
+
+	ERR_FAIL_COND_V_MSG(draw_list.active, ERR_INVALID_PARAMETER,
+			"Updating acceleration structures is forbidden during creation of a draw list.");
+	ERR_FAIL_COND_V_MSG(compute_list.active, ERR_INVALID_PARAMETER,
+			"Updating acceleration structures is forbidden during creation of a compute list.");
+	ERR_FAIL_COND_V_MSG(raytracing_list.active, ERR_INVALID_PARAMETER,
+			"Updating acceleration structures is forbidden during creation of a raytracing list.");
+
+	AccelerationStructure *accel = acceleration_structure_owner.get_or_null(p_acceleration_structure);
+	ERR_FAIL_NULL_V_MSG(accel, ERR_INVALID_PARAMETER, "Acceleration structure argument is not valid.");
+
+	// Resolve the deformed vertex buffer's driver ID and tracker.
+	// The deformed buffer comes from MeshInstance::Surface::vertex_buffer[current_buffer].
+	RDD::BufferID deformed_vb_driver_id;
+	RDG::ResourceTracker *deformed_vb_tracker = nullptr;
+	if (p_deformed_vertex_buffer.is_valid()) {
+		Buffer *vb = vertex_buffer_owner.get_or_null(p_deformed_vertex_buffer);
+		if (vb) {
+			deformed_vb_driver_id = vb->driver_id;
+			deformed_vb_tracker = vb->draw_tracker;
+		}
+	}
+
+	struct UpdateCallbackData {
+		RDD *driver;
+		RDD::AccelerationStructureID accel_id;
+		RDD::BufferID deformed_vb_id;
+	};
+	UpdateCallbackData *cb_data = memnew(UpdateCallbackData);
+	cb_data->driver = driver;
+	cb_data->accel_id = accel->driver_id;
+	cb_data->deformed_vb_id = deformed_vb_driver_id;
+
+	auto update_callback = [](RDD *p_driver, RDD::CommandBufferID p_cmd, void *p_userdata) {
+		UpdateCallbackData *data = (UpdateCallbackData *)p_userdata;
+		p_driver->command_update_acceleration_structure(p_cmd, data->accel_id, data->deformed_vb_id);
+		memdelete(data);
+	};
+
+	// Set up resource trackers: BLAS as write target, deformed vertex buffer as read input.
+	thread_local LocalVector<RDG::ResourceTracker *> trackers;
+	thread_local LocalVector<RDG::ResourceUsage> usages;
+	trackers.clear();
+	usages.clear();
+
+	trackers.push_back(accel->draw_tracker);
+	usages.push_back(RDG::RESOURCE_USAGE_ACCELERATION_STRUCTURE_READ_WRITE);
+
+	if (deformed_vb_tracker) {
+		trackers.push_back(deformed_vb_tracker);
+		usages.push_back(RDG::RESOURCE_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT);
+	}
+
+	draw_graph.add_driver_callback(update_callback, cb_data, trackers, usages);
 
 	return OK;
 }
@@ -6628,7 +6700,10 @@ void RenderingDevice::_flush_barriers_for_transfer_worker(TransferWorker *p_tran
 }
 
 void RenderingDevice::_check_transfer_worker_operation(uint32_t p_transfer_worker_index, uint64_t p_transfer_worker_operation) {
+	ERR_FAIL_COND_MSG(p_transfer_worker_index >= transfer_worker_pool_size,
+			vformat("Transfer worker index %u is out of range (pool size: %u).", p_transfer_worker_index, transfer_worker_pool_size));
 	TransferWorker *transfer_worker = transfer_worker_pool[p_transfer_worker_index];
+	ERR_FAIL_NULL_MSG(transfer_worker, vformat("Transfer worker at index %u is null.", p_transfer_worker_index));
 	MutexLock lock(transfer_worker->operations_mutex);
 	uint64_t &dst_operation = transfer_worker_operation_used_by_draw[transfer_worker->index];
 	dst_operation = MAX(dst_operation, p_transfer_worker_operation);

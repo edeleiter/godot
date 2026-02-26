@@ -351,6 +351,8 @@ public:
 	virtual void rt_unregister_instance(RID p_instance) override;
 	virtual void rt_update_instance_transform(RID p_instance, const Transform3D &p_transform) override;
 	virtual void rt_update() override;
+	virtual void rt_mark_instance_deformable(RID p_instance, RID p_mesh_instance) override;
+	virtual void rt_update_deformable() override;
 
 	virtual void set_debug_draw_mode(RS::ViewportDebugDraw p_debug_draw) override;
 	_FORCE_INLINE_ RS::ViewportDebugDraw get_debug_draw_mode() const {

@@ -445,6 +445,17 @@ half get_omni_attenuation(float distance, float inv_range, float decay) {
 	return half(nd * pow(max(distance, 0.0001), -decay));
 }
 
+#ifndef SHADOWS_DISABLED
+half apply_rt_shadow(half p_shadow, int p_rt_slice, vec2 p_screen_uv) {
+	if (p_rt_slice >= 0) {
+		float rt_s = textureLod(sampler2DArray(rt_shadow_array, SAMPLER_LINEAR_CLAMP),
+				vec3(p_screen_uv, float(p_rt_slice)), 0.0).r;
+		p_shadow = half(min(float(p_shadow), rt_s));
+	}
+	return p_shadow;
+}
+#endif
+
 void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3 vertex_ddx, vec3 vertex_ddy, hvec3 f0, half roughness, half metallic, float taa_frame_count, hvec3 albedo, inout half alpha, vec2 screen_uv, hvec3 energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 		hvec3 backlight,
@@ -607,6 +618,12 @@ void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 			depth = 1.0 - depth;
 			shadow = mix(half(1.0), sample_omni_pcf_shadow(shadow_atlas, omni_lights.data[idx].soft_shadow_scale / shadow_sample.z, pos, uv_rect, flip_offset, depth, taa_frame_count), half(omni_lights.data[idx].shadow_opacity));
 		}
+	}
+#endif
+
+#ifndef SHADOWS_DISABLED
+	if (bool(implementation_data.ss_effects_flags & SCREEN_SPACE_EFFECTS_FLAGS_USE_RT_SHADOWS)) {
+		shadow = apply_rt_shadow(shadow, int(omni_lights.data[idx].bake_mode >> 8u) - 1, screen_uv);
 	}
 #endif
 
@@ -859,6 +876,12 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 		}
 	}
 #endif // SHADOWS_DISABLED
+
+#ifndef SHADOWS_DISABLED
+	if (bool(implementation_data.ss_effects_flags & SCREEN_SPACE_EFFECTS_FLAGS_USE_RT_SHADOWS)) {
+		shadow = apply_rt_shadow(shadow, int(spot_lights.data[idx].bake_mode >> 8u) - 1, screen_uv);
+	}
+#endif
 
 	vec3 color = spot_lights.data[idx].color;
 

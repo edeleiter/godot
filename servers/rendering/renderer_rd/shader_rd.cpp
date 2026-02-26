@@ -186,16 +186,16 @@ void ShaderRD::setup_raytracing(const char *p_raygen_code, const char *p_any_hit
 	if (p_raygen_code) {
 		_add_stage(p_raygen_code, STAGE_TYPE_RAYGEN);
 	}
-	if (p_any_hit_code) {
+	if (p_any_hit_code && p_any_hit_code[0] != '\0') {
 		_add_stage(p_any_hit_code, STAGE_TYPE_ANY_HIT);
 	}
-	if (p_closest_hit_code) {
+	if (p_closest_hit_code && p_closest_hit_code[0] != '\0') {
 		_add_stage(p_closest_hit_code, STAGE_TYPE_CLOSEST_HIT);
 	}
-	if (p_miss_code) {
+	if (p_miss_code && p_miss_code[0] != '\0') {
 		_add_stage(p_miss_code, STAGE_TYPE_MISS);
 	}
-	if (p_intersection_code) {
+	if (p_intersection_code && p_intersection_code[0] != '\0') {
 		_add_stage(p_intersection_code, STAGE_TYPE_INTERSECTION);
 	}
 
@@ -596,7 +596,7 @@ String ShaderRD::_version_get_sha1(Version *p_version) const {
 }
 
 static const char *shader_file_header = "GDSC";
-static const uint32_t cache_file_version = 4;
+static const uint32_t cache_file_version = 5;
 
 String ShaderRD::_get_cache_file_relative_path(Version *p_version, int p_group, const String &p_api_name) {
 	String sha1 = _version_get_sha1(p_version);
@@ -1174,11 +1174,15 @@ Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &
 	}
 
 	if (compilation_failed) {
-		ERR_PRINT("Error compiling " + String(compilation_failed_stage == RD::SHADER_STAGE_COMPUTE ? "Compute " : (compilation_failed_stage == RD::SHADER_STAGE_VERTEX ? "Vertex" : "Fragment")) + " shader.");
+		ERR_PRINT("Error compiling " + String(RD::SHADER_STAGE_NAMES[compilation_failed_stage]) + " shader.");
 		ERR_PRINT(error);
 
 #ifdef DEBUG_ENABLED
 		ERR_PRINT("code:\n" + p_stage_sources[compilation_failed_stage].get_with_code_lines());
+#else
+		if (compilation_failed_stage >= RD::SHADER_STAGE_RAYGEN) {
+			ERR_PRINT("code:\n" + p_stage_sources[compilation_failed_stage].get_with_code_lines());
+		}
 #endif
 
 		return Vector<RD::ShaderStageSPIRVData>();

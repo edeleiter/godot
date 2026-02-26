@@ -62,6 +62,10 @@ public:
 	virtual void rt_unregister_instance(RID p_instance) {}
 	virtual void rt_update_instance_transform(RID p_instance, const Transform3D &p_transform) {}
 	virtual void rt_update() {}
+	// Mark a mesh instance as deformable (skinned/blend-shape). Call after rt_register_mesh_instance.
+	virtual void rt_mark_instance_deformable(RID p_instance, RID p_mesh_instance) {}
+	// Update deformable BLASes and rebuild TLAS. Call AFTER update_mesh_instances() in render_scene().
+	virtual void rt_update_deformable() {}
 
 	/* Lights matched up to Geometry Instances */
 	virtual uint32_t get_max_lights_total() = 0;
@@ -242,6 +246,17 @@ public:
 	float environment_get_ssil_normal_rejection(RID p_env) const;
 
 	virtual void environment_set_ssil_quality(RS::EnvironmentSSILQuality p_quality, bool p_half_size, float p_adaptive_target, int p_blur_passes, float p_fadeout_from, float p_fadeout_to) = 0;
+
+	// RT Effects (Phase B)
+	void environment_set_rt_reflections(RID p_env, bool p_enabled);
+	bool environment_get_rt_reflections_enabled(RID p_env) const;
+
+	void environment_set_rt_ao(RID p_env, bool p_enabled, float p_radius);
+	bool environment_get_rt_ao_enabled(RID p_env) const;
+	float environment_get_rt_ao_radius(RID p_env) const;
+
+	void environment_set_rt_shadows(RID p_env, bool p_enabled);
+	bool environment_get_rt_shadows_enabled(RID p_env) const;
 
 	// SDFGI
 	void environment_set_sdfgi(RID p_env, bool p_enable, int p_cascades, float p_min_cell_size, RS::EnvironmentSDFGIYScale p_y_scale, bool p_use_occlusion, float p_bounce_feedback, bool p_read_sky, float p_energy, float p_normal_bias, float p_probe_bias);

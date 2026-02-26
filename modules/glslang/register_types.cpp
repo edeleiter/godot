@@ -64,7 +64,12 @@ Vector<uint8_t> compile_glslang_shader(RenderingDeviceCommons::ShaderStage p_sta
 	glslang::EShTargetLanguageVersion TargetVersion = (glslang::EShTargetLanguageVersion)p_spirv_version;
 
 	glslang::TShader shader(stages[p_stage]);
-	CharString cs = p_source_code.utf8();
+	// For RT stages, strip any leading whitespace so #version 460 is the first token.
+	String sanitized_source = p_source_code;
+	if (p_stage >= RenderingDeviceCommons::SHADER_STAGE_RAYGEN) {
+		sanitized_source = sanitized_source.strip_edges(true, false);
+	}
+	CharString cs = sanitized_source.utf8();
 	const char *cs_strings = cs.get_data();
 	std::string preamble = "";
 
@@ -89,7 +94,7 @@ Vector<uint8_t> compile_glslang_shader(RenderingDeviceCommons::ShaderStage p_sta
 	if (generate_spirv_debug_info) {
 		messages = (EShMessages)(messages | EShMsgDebugInfo);
 	}
-	const int DefaultVersion = 100;
+	const int DefaultVersion = 460;
 
 	//parse
 	if (!shader.parse(GetDefaultResources(), DefaultVersion, false, messages)) {

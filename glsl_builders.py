@@ -190,23 +190,53 @@ public:
 """)
 
         if header_data.raygen_lines:
+            # Strip leading blank lines so #version 460 is the first token.
+            for lst in [
+                header_data.raygen_lines,
+                header_data.any_hit_lines,
+                header_data.closest_hit_lines,
+                header_data.miss_lines,
+                header_data.intersection_lines,
+            ]:
+                while lst and lst[0] == "":
+                    lst.pop(0)
+
+            any_hit_arg = "_any_hit_code" if header_data.any_hit_lines else "nullptr"
+            closest_hit_arg = "_closest_hit_code" if header_data.closest_hit_lines else "nullptr"
+            miss_arg = "_miss_code" if header_data.miss_lines else "nullptr"
+            intersection_arg = "_intersection_code" if header_data.intersection_lines else "nullptr"
+
             file.write(f"""\
 		static const char _raygen_code[] = {{
 {to_raw_cstring(header_data.raygen_lines)}
 		}};
+""")
+            if header_data.any_hit_lines:
+                file.write(f"""\
 		static const char _any_hit_code[] = {{
 {to_raw_cstring(header_data.any_hit_lines)}
 		}};
+""")
+            if header_data.closest_hit_lines:
+                file.write(f"""\
 		static const char _closest_hit_code[] = {{
 {to_raw_cstring(header_data.closest_hit_lines)}
 		}};
+""")
+            if header_data.miss_lines:
+                file.write(f"""\
 		static const char _miss_code[] = {{
 {to_raw_cstring(header_data.miss_lines)}
 		}};
+""")
+            if header_data.intersection_lines:
+                file.write(f"""\
 		static const char _intersection_code[] = {{
 {to_raw_cstring(header_data.intersection_lines)}
 		}};
-		setup_raytracing(_raygen_code, _any_hit_code, _closest_hit_code, _miss_code, _intersection_code, "{class_name}");
+""")
+            file.write(f"""\
+		setup_raytracing(_raygen_code, {any_hit_arg}, {closest_hit_arg}, {miss_arg}, {intersection_arg}, "{class_name}");
 """)
         elif header_data.compute_lines:
             file.write(f"""\

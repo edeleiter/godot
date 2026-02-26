@@ -160,6 +160,7 @@ GodotMCPServer::GodotMCPServer() {
 	tool_handlers["godot_capture_screenshot"] = &GodotMCPServer::_tool_capture_screenshot;
 	tool_handlers["godot_runtime_camera_control"] = &GodotMCPServer::_tool_runtime_camera_control;
 	tool_handlers["godot_get_runtime_camera_info"] = &GodotMCPServer::_tool_get_runtime_camera_info;
+	tool_handlers["godot_wait"] = &GodotMCPServer::_tool_wait;
 
 	// Editor tools.
 	tool_handlers["godot_get_editor_log"] = &GodotMCPServer::_tool_get_editor_log;

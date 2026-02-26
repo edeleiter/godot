@@ -135,6 +135,7 @@ class RenderingDeviceDriverVulkan : public RenderingDeviceDriver {
 	RenderingContextDriverVulkan *context_driver = nullptr;
 	RenderingContextDriver::Device context_device = {};
 	uint32_t frame_count = 1;
+	uint32_t current_frame_index = 0;
 	VkPhysicalDevice physical_device = VK_NULL_HANDLE;
 	VkPhysicalDeviceProperties physical_device_properties = {};
 	VkPhysicalDeviceFeatures physical_device_features = {};
@@ -704,11 +705,13 @@ public:
 		RDD::BufferID buffer;
 		uint32_t scratch_alignment = 0;
 		uint32_t scratch_size = 0;
+		uint32_t update_scratch_size = 0;
 		RDD::BufferID instances_buffer;
 		VkAccelerationStructureGeometryKHR geometry = {};
 		LocalVector<VkAccelerationStructureInstanceKHR> instances;
 		VkAccelerationStructureBuildGeometryInfoKHR build_info = {};
 		VkAccelerationStructureBuildRangeInfoKHR range_info = {};
+		LocalVector<RDD::BufferID> scratch_ring; // one slot per frame_index; freed on next use of that slot
 	};
 
 	virtual AccelerationStructureID blas_create(BufferID p_vertex_buffer, uint64_t p_vertex_offset, VertexFormatID p_vertex_format, uint32_t p_vertex_count, uint32_t p_position_attribute_location, BufferID p_index_buffer, IndexBufferFormat p_index_format, uint64_t p_index_offset_bytes, uint32_t p_index_count, BitField<AccelerationStructureGeometryBits> p_geometry_bits) override final;
@@ -725,6 +728,7 @@ public:
 	// ----- COMMANDS -----
 
 	virtual void command_build_acceleration_structure(CommandBufferID p_cmd_buffer, AccelerationStructureID p_acceleration_structure, BufferID p_scratch_buffer) override final;
+	virtual void command_update_acceleration_structure(CommandBufferID p_cmd_buffer, AccelerationStructureID p_acceleration_structure, BufferID p_deformed_vertex_buffer) override final;
 	virtual void command_bind_raytracing_pipeline(CommandBufferID p_cmd_buffer, RaytracingPipelineID p_pipeline) override final;
 	virtual void command_bind_raytracing_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) override final;
 	virtual void command_trace_rays(CommandBufferID p_cmd_buffer, uint32_t p_width, uint32_t p_height) override final;

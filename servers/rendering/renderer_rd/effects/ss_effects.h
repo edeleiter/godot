@@ -30,7 +30,14 @@
 
 #pragma once
 
+#include "core/templates/hash_map.h"
 #include "servers/rendering/renderer_rd/pipeline_deferred_rd.h"
+#include "servers/rendering/renderer_rd/shaders/effects/rt_ao.glsl.gen.h"
+#include "servers/rendering/renderer_rd/shaders/effects/rt_ao_accumulate.glsl.gen.h"
+#include "servers/rendering/renderer_rd/shaders/effects/rt_reflections.glsl.gen.h"
+#include "servers/rendering/renderer_rd/shaders/effects/rt_reflections_accumulate.glsl.gen.h"
+#include "servers/rendering/renderer_rd/shaders/effects/rt_shadows.glsl.gen.h"
+#include "servers/rendering/renderer_rd/shaders/effects/rt_shadows_accumulate.glsl.gen.h"
 #include "servers/rendering/renderer_rd/shaders/effects/screen_space_reflection.glsl.gen.h"
 #include "servers/rendering/renderer_rd/shaders/effects/screen_space_reflection_downsample.glsl.gen.h"
 #include "servers/rendering/renderer_rd/shaders/effects/screen_space_reflection_filter.glsl.gen.h"
@@ -53,6 +60,12 @@
 #define RB_SCOPE_SSIL SNAME("rb_ssil")
 #define RB_SCOPE_SSAO SNAME("rb_ssao")
 #define RB_SCOPE_SSR SNAME("rb_ssr")
+#define RB_SCOPE_RTREFL SNAME("rb_rtrefl")
+#define RB_SCOPE_RTAO SNAME("rb_rtao")
+
+#define RB_RT_CURRENT SNAME("rt_current")
+#define RB_RT_HISTORY SNAME("rt_history")
+#define RB_RT_PING SNAME("rt_ping")
 
 #define RB_LINEAR_DEPTH SNAME("linear_depth")
 #define RB_FINAL SNAME("final")
@@ -153,6 +166,127 @@ public:
 	void ssr_allocate_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, SSRRenderBuffers &p_ssr_buffers, const RD::DataFormat p_color_format);
 	void screen_space_reflection(Ref<RenderSceneBuffersRD> p_render_buffers, SSRRenderBuffers &p_ssr_buffers, const RID *p_normal_roughness_slices, int p_max_steps, float p_fade_in, float p_fade_out, float p_tolerance, const Projection *p_projections, const Projection *p_reprojections, const Vector3 *p_eye_offsets, RendererRD::CopyEffects &p_copy_effects);
 
+	// TODO: Extract RTReflections, RTAO, RTShadows to a dedicated RTEffects class
+	// when this section exceeds ~500 lines.
+
+	/* RT Reflections */
+
+	enum RTReflectionQuality {
+		RT_REFLECTION_QUALITY_LOW = 0,
+		RT_REFLECTION_QUALITY_MEDIUM,
+		RT_REFLECTION_QUALITY_HIGH,
+	};
+
+	struct RTReflectionsPushConstant {
+		int32_t screen_size[2];
+		uint32_t quality;
+		uint32_t frame_index;
+		float roughness_cutoff;
+		float temporal_blend;
+		float pad[2];
+	};
+	static_assert(sizeof(RTReflectionsPushConstant) <= 128);
+
+	struct RTReflectionsAccumulatePushConstant {
+		int32_t screen_size[2];
+		float temporal_blend;
+		float velocity_rejection_threshold;
+	};
+	static_assert(sizeof(RTReflectionsAccumulatePushConstant) <= 128);
+
+	void rt_reflections_allocate_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, uint32_t p_internal_width, uint32_t p_internal_height);
+	void rt_screen_reflection(Ref<RenderSceneBuffersRD> p_render_buffers,
+			RID p_tlas, RID p_sky_texture, RID p_normal_roughness, RID p_depth, RID p_velocity,
+			const Vector<Color> &p_instance_base_colors,
+			RTReflectionQuality p_quality,
+			const Projection &p_projection, const Projection &p_reprojection,
+			const Transform3D &p_view_transform, uint32_t p_frame_index,
+			uint32_t p_tlas_instance_count = 0);
+
+	/* RT Ambient Occlusion */
+
+	struct RTAOPushConstant {
+		int32_t screen_size[2];
+		uint32_t frame_index;
+		float max_distance;
+		float temporal_blend;
+		float pad[3];
+	};
+	static_assert(sizeof(RTAOPushConstant) <= 128);
+
+	struct RTAOAccumulatePushConstant {
+		int32_t screen_size[2];
+		float temporal_blend;
+		float velocity_rejection_threshold;
+	};
+	static_assert(sizeof(RTAOAccumulatePushConstant) <= 128);
+
+	void rt_ao_allocate_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, uint32_t p_internal_width, uint32_t p_internal_height);
+	void rt_ambient_occlusion(Ref<RenderSceneBuffersRD> p_render_buffers,
+			RID p_tlas, RID p_normal_roughness, RID p_depth, RID p_velocity,
+			float p_max_distance,
+			const Projection &p_projection, const Projection &p_reprojection,
+			const Transform3D &p_view_transform, uint32_t p_frame_index);
+
+	/* RT Shadows */
+
+	enum RTShadowsLightType {
+		RT_SHADOWS_LIGHT_DIRECTIONAL = 0,
+		RT_SHADOWS_LIGHT_OMNI = 1,
+		RT_SHADOWS_LIGHT_SPOT = 2,
+	};
+
+	struct RTShadowsPushConstant {
+		int32_t screen_size[2];
+		uint32_t light_type;
+		uint32_t frame_index;
+		float light_direction[3];
+		float light_range;
+		float light_position[3];
+		float sun_disk_angle;
+		float spot_angle;
+		float temporal_blend;
+		float pad[1];
+	};
+	static_assert(sizeof(RTShadowsPushConstant) <= 128);
+
+	struct RTShadowsAccumulatePushConstant {
+		int32_t screen_size[2];
+		float temporal_blend;
+		float velocity_rejection_threshold;
+	};
+	static_assert(sizeof(RTShadowsAccumulatePushConstant) <= 128);
+
+	struct RTShadowsHistoryEntry {
+		RID raw;         // raygen write target (r8, STORAGE+SAMPLING+COPY)
+		RID accum_hist;  // TAA history (r8, STORAGE+SAMPLING+COPY)
+		RID accum_out;   // accumulate output (r8, STORAGE+SAMPLING+COPY)
+		uint64_t last_used_frame = 0;
+
+		void free_gpu_resources();
+	};
+
+	struct RTShadowsRenderBuffers {
+		// Fixed 16-slot LRU pool: one r8 history texture per light RID.
+		// Entries older than EVICTION_GRACE_FRAMES are evicted when pool is full.
+		HashMap<RID, RTShadowsHistoryEntry> history_pool;
+		static constexpr int MAX_HISTORY_ENTRIES = 16;
+		static constexpr uint64_t EVICTION_GRACE_FRAMES = 60;
+	};
+
+	void rt_shadow_allocate_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, uint32_t p_internal_width, uint32_t p_internal_height);
+
+	// Named rt_shadow_dispatch() to avoid collision with rt_shadows struct member (M3).
+	void rt_shadow_dispatch(Ref<RenderSceneBuffersRD> p_render_buffers,
+			RTShadowsRenderBuffers &p_rt_shadow_buffers,
+			RID p_tlas, RID p_depth, RID p_normal_roughness, RID p_velocity,
+			RID p_light, RTShadowsLightType p_light_type,
+			const Vector3 &p_light_direction, const Vector3 &p_light_position,
+			float p_light_range, float p_sun_disk_angle, float p_spot_angle,
+			const Projection &p_projection, const Projection &p_reprojection,
+			const Transform3D &p_view_transform,
+			uint32_t p_frame_index, uint64_t p_current_frame);
+
 	/* subsurface scattering */
 	void sss_set_quality(RS::SubSurfaceScatteringQuality p_quality);
 	RS::SubSurfaceScatteringQuality sss_get_quality() const;
@@ -182,6 +316,18 @@ private:
 	RS::SubSurfaceScatteringQuality sss_quality = RS::SUB_SURFACE_SCATTERING_QUALITY_MEDIUM;
 	float sss_scale = 0.05;
 	float sss_depth_scale = 0.01;
+
+	/* RT Scene Data UBO — shared by all three RT effects. Matches the GLSL SceneData layout. */
+	struct RTSceneDataUBO {
+		float inv_projection[16]; // mat4
+		float inv_view[16]; // mat4
+		float reprojection[16]; // mat4
+		float screen_size_inv[2]; // vec2
+		uint32_t pad0 = 0;
+		uint32_t pad1 = 0;
+	};
+	static_assert(sizeof(RTSceneDataUBO) == 208,
+			"RTSceneDataUBO must match the GPU UBO layout in rt_*.glsl shaders.");
 
 	/* SS Downsampler */
 
@@ -527,6 +673,57 @@ private:
 		RID shader_version;
 		PipelineDeferredRD pipelines[SUBSURFACE_SCATTERING_MODE_MAX];
 	} sss;
+
+	/* Set to true only when RT shaders compiled successfully (RT hardware present). */
+	bool rt_shaders_valid = false;
+
+	/* Lazy RT init: all RT pipeline/texture creation is deferred to first use. */
+	bool rt_initialized = false;
+	void _ensure_rt_initialized();
+
+	/* RT Reflections private backing */
+	struct RTReflectionsData {
+		RtReflectionsShaderRD shader;
+		RID shader_version;
+		RID pipeline;
+		RtReflectionsAccumulateShaderRD accumulate_shader;
+		RID accumulate_shader_version;
+		RID accumulate_pipeline;
+		RID instance_color_buffer; // per-TLAS-entry base color SSBO (vec4[])
+		uint32_t instance_color_buffer_count = 0;
+		RID scene_data_ubo; // RTSceneDataUBO: inv_projection + inv_view + reprojection + screen_size_inv
+	} rt_reflections;
+
+	/* RT AO private backing */
+	struct RTAOData {
+		RtAoShaderRD shader;
+		RID shader_version;
+		RID pipeline;
+		RtAoAccumulateShaderRD accumulate_shader;
+		RID accumulate_shader_version;
+		RID accumulate_pipeline;
+		RID scene_data_ubo; // RTSceneDataUBO: inv_projection + inv_view + reprojection + screen_size_inv
+	} rt_ao;
+
+	/* RT Shadows private backing */
+	struct RTShadowsData {
+		RtShadowsShaderRD shader;
+		RID shader_version;
+		RID pipeline;
+		RtShadowsAccumulateShaderRD accumulate_shader;
+		RID accumulate_shader_version;
+		RID accumulate_pipeline;
+		RID scene_data_ubo; // RTSceneDataUBO: inv_projection + inv_view + reprojection + screen_size_inv
+	} rt_shadows;
+
+	// 1x1 black R16G16_SFLOAT STORAGE texture used as a safe fallback when no
+	// velocity buffer is available. Prevents Vulkan validation errors from
+	// passing RID() to a UNIFORM_TYPE_IMAGE binding.
+	RID rt_velocity_fallback;
+
+	// Engine-default black cubemap RID, cached from TextureStorage on first RT init.
+	// Used as a safe fallback sky texture when no sky is configured.
+	RID rt_sky_fallback_tex;
 };
 
 } // namespace RendererRD

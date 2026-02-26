@@ -605,7 +605,7 @@ void LightStorage::set_max_lights(const uint32_t p_max_lights) {
 	directional_light_buffer = RD::get_singleton()->uniform_buffer_create(directional_light_buffer_size);
 }
 
-void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const PagedArray<RID> &p_lights, const Transform3D &p_camera_transform, RID p_shadow_atlas, bool p_using_shadows, uint32_t &r_directional_light_count, uint32_t &r_positional_light_count, bool &r_directional_light_soft_shadows) {
+void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const PagedArray<RID> &p_lights, const Transform3D &p_camera_transform, RID p_shadow_atlas, bool p_using_shadows, uint32_t &r_directional_light_count, uint32_t &r_positional_light_count, bool &r_directional_light_soft_shadows, const HashMap<RID, int32_t> *p_rt_shadow_mapping) {
 	ForwardIDStorage *forward_id_storage = ForwardIDStorage::get_singleton();
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
 
@@ -691,6 +691,11 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 				}
 
 				light_data.bake_mode = light->bake_mode;
+
+				{
+					const int32_t *rt_slice = p_rt_shadow_mapping ? p_rt_shadow_mapping->getptr(p_lights[i]) : nullptr;
+					light_data.rt_shadow_slice = rt_slice ? *rt_slice : -1;
+				}
 
 				if (light_data.shadow_opacity > 0.001) {
 					RS::LightDirectionalShadowMode smode = light->directional_shadow_mode;
@@ -892,6 +897,12 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		light_data.specular_amount = light->param[RS::LIGHT_PARAM_SPECULAR] * 2.0;
 		light_data.volumetric_fog_energy = light->param[RS::LIGHT_PARAM_VOLUMETRIC_FOG_ENERGY];
 		light_data.bake_mode = light->bake_mode;
+		{
+			// Pack RT shadow slice into upper byte of bake_mode: 0 = none, 1-16 = slice 0-15.
+			const int32_t *rt_slice = p_rt_shadow_mapping ? p_rt_shadow_mapping->getptr(light_instance->self) : nullptr;
+			const uint32_t rt_slice_packed = rt_slice ? (uint32_t(*rt_slice + 1) << 8) : 0u;
+			light_data.bake_mode = (light_data.bake_mode & 0x00FFu) | rt_slice_packed;
+		}
 
 		float radius = MAX(0.001, light->param[RS::LIGHT_PARAM_RANGE]);
 		light_data.inv_radius = 1.0 / radius;

@@ -659,6 +659,36 @@ float RendererSceneRender::environment_get_ssil_normal_rejection(RID p_env) cons
 	return environment_storage.environment_get_ssil_normal_rejection(p_env);
 }
 
+// RT Effects (Phase B)
+
+void RendererSceneRender::environment_set_rt_reflections(RID p_env, bool p_enabled) {
+	environment_storage.environment_set_rt_reflections(p_env, p_enabled);
+}
+
+bool RendererSceneRender::environment_get_rt_reflections_enabled(RID p_env) const {
+	return environment_storage.environment_get_rt_reflections_enabled(p_env);
+}
+
+void RendererSceneRender::environment_set_rt_ao(RID p_env, bool p_enabled, float p_radius) {
+	environment_storage.environment_set_rt_ao(p_env, p_enabled, p_radius);
+}
+
+bool RendererSceneRender::environment_get_rt_ao_enabled(RID p_env) const {
+	return environment_storage.environment_get_rt_ao_enabled(p_env);
+}
+
+float RendererSceneRender::environment_get_rt_ao_radius(RID p_env) const {
+	return environment_storage.environment_get_rt_ao_radius(p_env);
+}
+
+void RendererSceneRender::environment_set_rt_shadows(RID p_env, bool p_enabled) {
+	environment_storage.environment_set_rt_shadows(p_env, p_enabled);
+}
+
+bool RendererSceneRender::environment_get_rt_shadows_enabled(RID p_env) const {
+	return environment_storage.environment_get_rt_shadows_enabled(p_env);
+}
+
 // SDFGI
 
 void RendererSceneRender::environment_set_sdfgi(RID p_env, bool p_enable, int p_cascades, float p_min_cell_size, RS::EnvironmentSDFGIYScale p_y_scale, bool p_use_occlusion, float p_bounce_feedback, bool p_read_sky, float p_energy, float p_normal_bias, float p_probe_bias) {

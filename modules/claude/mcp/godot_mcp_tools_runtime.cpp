@@ -654,3 +654,23 @@ Dictionary GodotMCPServer::_tool_get_runtime_camera_info(const Dictionary &p_arg
 	return _error_result("Editor functionality not available");
 #endif
 }
+
+Dictionary GodotMCPServer::_tool_wait(const Dictionary &p_args) {
+#ifdef TOOLS_ENABLED
+	int duration_ms = p_args.get("duration_ms", 1000);
+	duration_ms = CLAMP(duration_ms, 100, 10000);
+
+	uint64_t start = Time::get_singleton()->get_ticks_msec();
+	int frames = 0;
+	while (Time::get_singleton()->get_ticks_msec() - start < (uint64_t)duration_ms) {
+		DisplayServer::get_singleton()->process_events();
+		Main::iteration();
+		frames++;
+	}
+
+	return _success_result("Waited " + itos(duration_ms) + "ms (" + itos(frames) + " editor frames)",
+			Dictionary{ { "duration_ms", duration_ms }, { "frames", frames } });
+#else
+	return _error_result("Editor functionality not available");
+#endif
+}

@@ -224,6 +224,19 @@ private:
 	Ref<Texture> adjustment_color_correction;
 	void _update_adjustment();
 
+	// RT Reflections (Phase B)
+	bool rt_reflections_enabled = false;
+	void _update_rt_reflections();
+
+	// RT Ambient Occlusion (Phase B)
+	bool rt_ao_enabled = false;
+	float rt_ao_radius = 1.0f;
+	void _update_rt_ao();
+
+	// RT Shadows (Phase B)
+	bool rt_shadows_enabled = false;
+	void _update_rt_shadows();
+
 protected:
 	static void _bind_methods();
 	void _validate_property(PropertyInfo &p_property) const;
@@ -448,6 +461,20 @@ public:
 	float get_adjustment_saturation() const;
 	void set_adjustment_color_correction(Ref<Texture> p_color_correction);
 	Ref<Texture> get_adjustment_color_correction() const;
+
+	// RT Reflections
+	void set_rt_reflections_enabled(bool p_enabled);
+	bool is_rt_reflections_enabled() const;
+
+	// RT Ambient Occlusion
+	void set_rt_ao_enabled(bool p_enabled);
+	bool is_rt_ao_enabled() const;
+	void set_rt_ao_radius(float p_radius);
+	float get_rt_ao_radius() const;
+
+	// RT Shadows
+	void set_rt_shadows_enabled(bool p_enabled);
+	bool is_rt_shadows_enabled() const;
 
 	Environment();
 	~Environment();

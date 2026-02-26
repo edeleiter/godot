@@ -2171,6 +2171,17 @@ void fragment_shader(in SceneData scene_data) {
 			ambient_light += ssil.rgb * albedo.rgb;
 		}
 
+		// RT Reflections (hardware ray tracing, Phase B). Blends accumulated traced color
+		// into specular using the alpha channel (1.0 = geometry hit, 0.0 = sky/miss).
+		if (bool(implementation_data.ss_effects_flags & SCREEN_SPACE_EFFECTS_FLAGS_USE_RT_REFLECTIONS)) {
+#ifdef USE_MULTIVIEW
+			vec4 rt_refl = textureLod(sampler2DArray(rt_reflections_buffer, SAMPLER_LINEAR_CLAMP), vec3(screen_uv, ViewIndex), 0.0);
+#else
+			vec4 rt_refl = textureLod(sampler2D(rt_reflections_buffer, SAMPLER_LINEAR_CLAMP), screen_uv, 0.0);
+#endif
+			indirect_specular_light = mix(indirect_specular_light, rt_refl.rgb, rt_refl.a);
+		}
+
 		//process ssr
 		if (bool(implementation_data.ss_effects_flags & SCREEN_SPACE_EFFECTS_FLAGS_USE_SSR)) {
 			bool resolve_ssr = bool(implementation_data.ss_effects_flags & SCREEN_SPACE_EFFECTS_FLAGS_RESOLVE_SSR);
@@ -2622,6 +2633,17 @@ void fragment_shader(in SceneData scene_data) {
 
 			blur_shadow(shadow);
 
+#ifndef SHADOWS_DISABLED
+			if (bool(implementation_data.ss_effects_flags & SCREEN_SPACE_EFFECTS_FLAGS_USE_RT_SHADOWS)) {
+				int rt_slice = directional_lights.data[i].rt_shadow_slice;
+				if (rt_slice >= 0) {
+					float rt_s = textureLod(sampler2DArray(rt_shadow_array, SAMPLER_LINEAR_CLAMP),
+							vec3(screen_uv, float(rt_slice)), 0.0).r;
+					shadow = min(shadow, rt_s);
+				}
+			}
+#endif
+
 #ifdef DEBUG_DRAW_PSSM_SPLITS
 			vec3 tint = vec3(1.0);
 			if (-vertex.z < directional_lights.data[i].shadow_split_offsets.x) {
@@ -3004,7 +3026,6 @@ void fragment_shader(in SceneData scene_data) {
 	frag_color = vec4(albedo, alpha);
 #else
 	frag_color = vec4(emission + ambient_light + diffuse_light + direct_specular_light + indirect_specular_light, alpha);
-//frag_color = vec4(1.0);
 #endif //USE_NO_SHADING
 
 #ifndef FOG_DISABLED

@@ -4202,8 +4202,14 @@ RDD::ShaderID RenderingDeviceDriverVulkan::shader_create_from_container(const Re
 		shader_info.respv_stage_shaders.reserve(stage_count);
 	}
 
-	// AnyHit and ClosestHit go in the same group.
-	uint32_t hit_group_index = UINT32_MAX;
+	// SBT region layout requires groups in [raygen, hit, miss] order. Build them in
+	// three separate vectors, then append in that order. Mixing raygen+miss in a
+	// single push_back loop would swap the hit/miss SBT entries for shaders that have
+	// a miss section AND a closest_hit/any_hit section (e.g. rt_reflections.glsl).
+	LocalVector<VkRayTracingShaderGroupCreateInfoKHR> rt_raygen_groups;
+	LocalVector<VkRayTracingShaderGroupCreateInfoKHR> rt_hit_groups;
+	LocalVector<VkRayTracingShaderGroupCreateInfoKHR> rt_miss_groups;
+	int rt_hit_group_local_idx = -1; // index within rt_hit_groups
 
 	for (int i = 0; i < stage_count; i++) {
 		const RenderingShaderContainer::Shader &shader = p_shader_container->shaders[i];
@@ -4237,7 +4243,21 @@ RDD::ShaderID RenderingDeviceDriverVulkan::shader_create_from_container(const Re
 
 		shader_info.original_stage_size.push_back(decoded_spirv.size());
 
-		if (use_respv) {
+		// RT shader stages (raygen, any_hit, closest_hit, miss, intersection) must not be
+		// processed by re-spirv. re-spirv remaps ID operands for instructions it tracks; RT
+		// opcodes like OpTraceRayKHR were registered with zero tracked operands (correct for
+		// adjacency analysis) but that means their actual ID operands would NOT be updated
+		// during re-spirv's ID-renaming pass — producing stale references and a Vulkan driver
+		// crash. RT shaders also never use specialization constants, so re-spirv is a no-op
+		// for them anyway.
+		ShaderStage current_stage = shader_refl.stages_vector[i];
+		const bool is_rt_stage = current_stage == ShaderStage::SHADER_STAGE_RAYGEN ||
+				current_stage == ShaderStage::SHADER_STAGE_ANY_HIT ||
+				current_stage == ShaderStage::SHADER_STAGE_CLOSEST_HIT ||
+				current_stage == ShaderStage::SHADER_STAGE_MISS ||
+				current_stage == ShaderStage::SHADER_STAGE_INTERSECTION;
+
+		if (use_respv && !is_rt_stage) {
 			const bool inline_data = store_respv || !RESPV_ONLY_INLINE_SHADERS_WITH_SPEC_CONSTANTS;
 			respv::Shader respv_shader(decoded_spirv.ptr(), decoded_spirv.size(), inline_data);
 			if (respv_shader.empty()) {
@@ -4289,7 +4309,7 @@ RDD::ShaderID RenderingDeviceDriverVulkan::shader_create_from_container(const Re
 
 		ShaderStage stage = shader_refl.stages_vector[i];
 
-		if (stage == ShaderStage::SHADER_STAGE_RAYGEN || stage == ShaderStage::SHADER_STAGE_MISS) {
+		if (stage == ShaderStage::SHADER_STAGE_RAYGEN) {
 			VkRayTracingShaderGroupCreateInfoKHR group_info = {};
 			group_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
 			group_info.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
@@ -4297,11 +4317,20 @@ RDD::ShaderID RenderingDeviceDriverVulkan::shader_create_from_container(const Re
 			group_info.closestHitShader = VK_SHADER_UNUSED_KHR;
 			group_info.intersectionShader = VK_SHADER_UNUSED_KHR;
 			group_info.generalShader = i;
-
-			shader_info.vk_groups_create_info.push_back(group_info);
+			rt_raygen_groups.push_back(group_info);
+		}
+		if (stage == ShaderStage::SHADER_STAGE_MISS) {
+			VkRayTracingShaderGroupCreateInfoKHR group_info = {};
+			group_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+			group_info.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+			group_info.anyHitShader = VK_SHADER_UNUSED_KHR;
+			group_info.closestHitShader = VK_SHADER_UNUSED_KHR;
+			group_info.intersectionShader = VK_SHADER_UNUSED_KHR;
+			group_info.generalShader = i;
+			rt_miss_groups.push_back(group_info);
 		}
 		if (stage == ShaderStage::SHADER_STAGE_ANY_HIT || stage == ShaderStage::SHADER_STAGE_CLOSEST_HIT) {
-			if (hit_group_index == UINT32_MAX) {
+			if (rt_hit_group_local_idx == -1) {
 				VkRayTracingShaderGroupCreateInfoKHR group_info = {};
 				group_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
 				group_info.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
@@ -4309,12 +4338,10 @@ RDD::ShaderID RenderingDeviceDriverVulkan::shader_create_from_container(const Re
 				group_info.closestHitShader = VK_SHADER_UNUSED_KHR;
 				group_info.intersectionShader = VK_SHADER_UNUSED_KHR;
 				group_info.generalShader = VK_SHADER_UNUSED_KHR;
-
-				hit_group_index = shader_info.vk_groups_create_info.size();
-				shader_info.vk_groups_create_info.push_back(group_info);
+				rt_hit_group_local_idx = rt_hit_groups.size();
+				rt_hit_groups.push_back(group_info);
 			}
-
-			VkRayTracingShaderGroupCreateInfoKHR &group_info = shader_info.vk_groups_create_info[hit_group_index];
+			VkRayTracingShaderGroupCreateInfoKHR &group_info = rt_hit_groups[rt_hit_group_local_idx];
 			if (stage == ShaderStage::SHADER_STAGE_ANY_HIT) {
 				group_info.anyHitShader = i;
 			} else if (stage == ShaderStage::SHADER_STAGE_CLOSEST_HIT) {
@@ -4329,9 +4356,20 @@ RDD::ShaderID RenderingDeviceDriverVulkan::shader_create_from_container(const Re
 			group_info.closestHitShader = VK_SHADER_UNUSED_KHR;
 			group_info.intersectionShader = i;
 			group_info.generalShader = VK_SHADER_UNUSED_KHR;
-
-			shader_info.vk_groups_create_info.push_back(group_info);
+			rt_hit_groups.push_back(group_info); // procedural hit groups belong in the hit region
 		}
+	}
+
+	// Append groups in SBT region order: raygen → hit → miss.
+	// _raytracing_pipeline_stb_create copies handles sequentially in this same order.
+	for (const VkRayTracingShaderGroupCreateInfoKHR &g : rt_raygen_groups) {
+		shader_info.vk_groups_create_info.push_back(g);
+	}
+	for (const VkRayTracingShaderGroupCreateInfoKHR &g : rt_hit_groups) {
+		shader_info.vk_groups_create_info.push_back(g);
+	}
+	for (const VkRayTracingShaderGroupCreateInfoKHR &g : rt_miss_groups) {
+		shader_info.vk_groups_create_info.push_back(g);
 	}
 
 	// Descriptor sets.
@@ -4402,27 +4440,14 @@ RDD::ShaderID RenderingDeviceDriverVulkan::shader_create_from_container(const Re
 	}
 
 	if (shader_refl.pipeline_type == PIPELINE_TYPE_RAYTRACING) {
-		// Regions
-
-		for (ShaderStage stage : shader_refl.stages_vector) {
-			switch (stage) {
-				case ShaderStage::SHADER_STAGE_RAYGEN:
-					shader_info.region_count.raygen_count += 1;
-					break;
-				case ShaderStage::SHADER_STAGE_ANY_HIT:
-				case ShaderStage::SHADER_STAGE_CLOSEST_HIT:
-					shader_info.region_count.hit_count += 1;
-					break;
-				case ShaderStage::SHADER_STAGE_MISS:
-					shader_info.region_count.miss_count += 1;
-					break;
-				default:
-					// nothing
-					break;
-			}
-		}
-
-		shader_info.region_count.group_count = shader_info.region_count.raygen_count + shader_info.region_count.hit_count + shader_info.region_count.miss_count;
+		// Count groups (not stages): any_hit + closest_hit share one hit group.
+		shader_info.region_count.raygen_count = rt_raygen_groups.size();
+		shader_info.region_count.hit_count = rt_hit_groups.size();
+		shader_info.region_count.miss_count = rt_miss_groups.size();
+		shader_info.region_count.group_count =
+				shader_info.region_count.raygen_count +
+				shader_info.region_count.hit_count +
+				shader_info.region_count.miss_count;
 	}
 
 	// Bookkeep.
@@ -6265,6 +6290,9 @@ RDD::AccelerationStructureID RenderingDeviceDriverVulkan::blas_create(BufferID p
 	accel_info->build_info.pGeometries = &accel_info->geometry;
 	accel_info->build_info.geometryCount = 1;
 	accel_info->build_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+	if (p_geometry_bits & RDD::ACCELERATION_STRUCTURE_GEOMETRY_ALLOW_UPDATE) {
+		accel_info->build_info.flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+	}
 
 	VkAccelerationStructureBuildSizesInfoKHR size_info = {};
 	size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
@@ -6393,6 +6421,7 @@ void RenderingDeviceDriverVulkan::_acceleration_structure_create(VkAccelerationS
 	// Scratch address must be a multiple of minAccelerationStructureScratchOffsetAlignment.
 	r_accel_info->scratch_alignment = acceleration_structure_capabilities.min_acceleration_structure_scratch_offset_alignment;
 	r_accel_info->scratch_size = p_size_info.buildScratchSize + r_accel_info->scratch_alignment;
+	r_accel_info->update_scratch_size = p_size_info.updateScratchSize + r_accel_info->scratch_alignment;
 
 	VkAccelerationStructureCreateInfoKHR accel_create_info = {};
 	accel_create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
@@ -6411,6 +6440,11 @@ void RenderingDeviceDriverVulkan::acceleration_structure_free(AccelerationStruct
 	ERR_FAIL_NULL_MSG(accel_info, "Acceleration structure input parameter is not valid.");
 	if (accel_info->instances_buffer) {
 		buffer_free(accel_info->instances_buffer);
+	}
+	for (RDD::BufferID buf : accel_info->scratch_ring) {
+		if (buf) {
+			buffer_free(buf);
+		}
 	}
 	if (accel_info->buffer) {
 		buffer_free(accel_info->buffer);
@@ -6442,6 +6476,63 @@ void RenderingDeviceDriverVulkan::command_build_acceleration_structure(CommandBu
 	const VkAccelerationStructureBuildRangeInfoKHR *range_info_ptr = &accel_info->range_info;
 
 	vkCmdBuildAccelerationStructuresKHR(command_buffer->vk_command_buffer, 1, build_info, &range_info_ptr);
+#endif
+}
+
+void RenderingDeviceDriverVulkan::command_update_acceleration_structure(CommandBufferID p_cmd_buffer, AccelerationStructureID p_acceleration_structure, BufferID p_deformed_vertex_buffer) {
+#if VULKAN_RAYTRACING_ENABLED
+	const CommandBufferInfo *command_buffer = (const CommandBufferInfo *)p_cmd_buffer.id;
+	AccelerationStructureInfo *accel_info = (AccelerationStructureInfo *)p_acceleration_structure.id;
+	ERR_FAIL_NULL_MSG(accel_info, "command_update_acceleration_structure: invalid acceleration structure.");
+	ERR_FAIL_COND_MSG(!(accel_info->build_info.flags & VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR),
+			"command_update_acceleration_structure: BLAS was not created with ALLOW_UPDATE flag.");
+
+	// Temporarily patch the vertex buffer address to point at the deformed (post-skinning) buffer.
+	// The stored geometry.geometry.triangles.vertexData.deviceAddress was set to the bind-pose
+	// buffer at creation time; deformed vertices live in a different GPU buffer.
+	VkDeviceAddress original_vertex_address = accel_info->geometry.geometry.triangles.vertexData.deviceAddress;
+	if (p_deformed_vertex_buffer) {
+		VkDeviceAddress deformed_address = buffer_get_device_address(p_deformed_vertex_buffer);
+		accel_info->geometry.geometry.triangles.vertexData.deviceAddress = deformed_address;
+	}
+
+	VkAccelerationStructureBuildGeometryInfoKHR update_build_info = accel_info->build_info;
+	update_build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR;
+	update_build_info.srcAccelerationStructure = accel_info->vk_acceleration_structure;
+	update_build_info.dstAccelerationStructure = accel_info->vk_acceleration_structure;
+
+	// Allocate a temporary scratch buffer for the update.
+	// updateScratchSize may differ from buildScratchSize -- use the stored update_scratch_size.
+	RDD::BufferID scratch_buffer = buffer_create(accel_info->update_scratch_size,
+			RDD::BUFFER_USAGE_STORAGE_BIT | RDD::BUFFER_USAGE_DEVICE_ADDRESS_BIT,
+			RDD::MEMORY_ALLOCATION_TYPE_GPU, UINT64_MAX);
+	if (!scratch_buffer) {
+		accel_info->geometry.geometry.triangles.vertexData.deviceAddress = original_vertex_address;
+		ERR_FAIL_MSG("command_update_acceleration_structure: failed to allocate update scratch buffer.");
+	}
+
+	VkDeviceAddress scratch_address = buffer_get_device_address(scratch_buffer);
+	update_build_info.scratchData.deviceAddress = _align_up_address(scratch_address, accel_info->scratch_alignment);
+
+	const VkAccelerationStructureBuildRangeInfoKHR *range_info_ptr = &accel_info->range_info;
+	vkCmdBuildAccelerationStructuresKHR(command_buffer->vk_command_buffer, 1, &update_build_info, &range_info_ptr);
+
+	// Restore original bind-pose address so future reads of accel_info remain consistent.
+	accel_info->geometry.geometry.triangles.vertexData.deviceAddress = original_vertex_address;
+
+	// Lazy-init ring to frame_count slots.
+	if ((uint32_t)accel_info->scratch_ring.size() < frame_count) {
+		accel_info->scratch_ring.resize(frame_count);
+	}
+	// The slot for current_frame_index held the scratch from the previous time
+	// this frame slot ran. That frame's fence was waited in begin_segment, so
+	// it is safe to free now.
+	RDD::BufferID &ring_slot = accel_info->scratch_ring[current_frame_index];
+	if (ring_slot) {
+		buffer_free(ring_slot);
+		ring_slot = {};
+	}
+	ring_slot = scratch_buffer;
 #endif
 }
 
@@ -7108,7 +7199,7 @@ inline String RenderingDeviceDriverVulkan::get_vulkan_result(VkResult err) {
 /********************/
 
 void RenderingDeviceDriverVulkan::begin_segment(uint32_t p_frame_index, uint32_t p_frames_drawn) {
-	// Per-frame segments are not required in Vulkan.
+	current_frame_index = p_frame_index;
 }
 
 void RenderingDeviceDriverVulkan::end_segment() {

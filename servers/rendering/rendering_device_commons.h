@@ -359,6 +359,10 @@ public:
 		UI_PASS = 11u << 16u,
 		// Other
 		DEBUG_PASS = 12u << 16u,
+		// Ray tracing passes (custom; unreal branch)
+		RT_AO_PASS = 13u << 16u,
+		RT_REFLECTIONS_PASS = 14u << 16u,
+		RT_SHADOWS_PASS = 15u << 16u,
 	};
 
 	enum CompareOperator {

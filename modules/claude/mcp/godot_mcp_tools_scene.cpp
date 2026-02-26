@@ -58,20 +58,55 @@ static Array _serialize_arguments(const Vector<PropertyInfo> &p_args) {
 	return out;
 }
 
+// Walk a colon-separated sub-resource path and return the leaf object.
+// For "environment:rt_ao_radius", returns the Environment resource and sets
+// r_leaf_property to "rt_ao_radius". Returns nullptr on failure.
+static Object *_walk_subresource_chain(Node *p_node, const String &p_property, String &r_leaf_property, String &r_error) {
+	Vector<String> parts = p_property.split(":");
+	if (parts.size() < 2) {
+		r_leaf_property = p_property;
+		return p_node;
+	}
+
+	// Walk intermediate sub-resources.
+	Object *current = p_node;
+	for (int i = 0; i < parts.size() - 1; i++) {
+		Variant val = current->get(parts[i]);
+		Object *obj = val.get_validated_object();
+		if (!obj) {
+			r_error = "Sub-resource '" + parts[i] + "' is null (at step " + itos(i) + " of '" + p_property + "')";
+			return nullptr;
+		}
+		current = obj;
+	}
+
+	r_leaf_property = parts[parts.size() - 1];
+	return current;
+}
+
 // Determine the target type for a property on a node, handling the case where
 // the current value is null but the property expects an Object (e.g.,
 // MeshInstance3D.mesh before any mesh is assigned).
+// Supports colon-separated sub-resource paths (e.g., "environment:rt_ao_radius").
 static Variant::Type _resolve_property_type(Node *p_node, const String &p_property) {
-	Variant current = p_node->get(p_property);
+	// Handle sub-resource paths.
+	String leaf_property;
+	String error;
+	Object *leaf = _walk_subresource_chain(p_node, p_property, leaf_property, error);
+	if (!leaf) {
+		return Variant::NIL;
+	}
+
+	Variant current = leaf->get(leaf_property);
 	Variant::Type type = current.get_type();
 	if (type != Variant::NIL) {
 		return type;
 	}
 
 	List<PropertyInfo> props;
-	p_node->get_property_list(&props);
+	leaf->get_property_list(&props);
 	for (const PropertyInfo &pi : props) {
-		if (pi.name == p_property && pi.type == Variant::OBJECT) {
+		if (pi.name == leaf_property && pi.type == Variant::OBJECT) {
 			return Variant::OBJECT;
 		}
 	}
@@ -216,6 +251,48 @@ Dictionary GodotMCPServer::_tool_set_property(const Dictionary &p_args) {
 		return _error_result("Property name is empty");
 	}
 
+	// Handle sub-resource paths (e.g., "environment:rt_reflections_enabled").
+	if (property.contains(":")) {
+		String leaf_property;
+		String walk_error;
+		Object *leaf = _walk_subresource_chain(node, property, leaf_property, walk_error);
+		if (!leaf) {
+			return _error_result(walk_error);
+		}
+
+		// Coerce value to match the leaf property's type.
+		Variant current_leaf_val = leaf->get(leaf_property);
+		if (current_leaf_val.get_type() != Variant::NIL) {
+			value = _coerce_value(value, current_leaf_val.get_type());
+		}
+
+		// For undo: snapshot the root resource before modification.
+		String root_property = property.get_slice(":", 0);
+		Variant old_root_resource = node->get(root_property);
+		Variant old_root_copy;
+		Object *old_obj = old_root_resource.get_validated_object();
+		if (old_obj) {
+			Resource *res = Object::cast_to<Resource>(old_obj);
+			if (res) {
+				old_root_copy = res->duplicate();
+			}
+		}
+
+		Variant old_leaf_value = leaf->get(leaf_property);
+		leaf->set(leaf_property, value);
+
+		// Register undo/redo: undo restores the root resource snapshot.
+		EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
+		ur->create_action("MCP: Set " + property);
+		if (old_root_copy.get_type() != Variant::NIL) {
+			// Undo by restoring the duplicated root resource.
+			ur->add_undo_method(node, "set", root_property, old_root_copy);
+		}
+		ur->commit_action(false);
+
+		return _success_result("Set " + property + " on " + String(node->get_name()));
+	}
+
 	// Coerce value to match the property's expected type.
 	Variant::Type target_type = _resolve_property_type(node, property);
 	if (target_type != Variant::NIL) {
@@ -255,7 +332,20 @@ Dictionary GodotMCPServer::_tool_get_property(const Dictionary &p_args) {
 		return _error_result("Property name is empty");
 	}
 
-	Variant value = node->get(property);
+	Variant value;
+
+	// Handle sub-resource paths (e.g., "environment:rt_reflections_enabled").
+	if (property.contains(":")) {
+		String leaf_property;
+		String walk_error;
+		Object *leaf = _walk_subresource_chain(node, property, leaf_property, walk_error);
+		if (!leaf) {
+			return _error_result(walk_error);
+		}
+		value = leaf->get(leaf_property);
+	} else {
+		value = node->get(property);
+	}
 
 	return _success_result("Property retrieved",
 			Dictionary{ { "property", property }, { "value", value }, { "type", Variant::get_type_name(value.get_type()) } });
@@ -745,6 +835,17 @@ Dictionary GodotMCPServer::_tool_set_properties_batch(const Dictionary &p_args) 
 	};
 	Vector<BatchOp> ops;
 
+	// Track sub-resource ops separately — they need special undo handling.
+	struct SubResourceOp {
+		Node *node;
+		String root_property;
+		Object *leaf;
+		String leaf_property;
+		Variant new_value;
+		Variant old_root_copy;
+	};
+	Vector<SubResourceOp> sub_ops;
+
 	for (int i = 0; i < operations.size(); i++) {
 		Dictionary op = operations[i];
 		String node_path = op.get("node_path", "");
@@ -769,32 +870,75 @@ Dictionary GodotMCPServer::_tool_set_properties_batch(const Dictionary &p_args) 
 		}
 
 		Variant value = op["value"];
-		Variant::Type target_type = _resolve_property_type(node, property);
-		if (target_type != Variant::NIL) {
-			value = _coerce_value(value, target_type);
-		}
 
-		BatchOp batch_op;
-		batch_op.node = node;
-		batch_op.property = property;
-		batch_op.new_value = value;
-		batch_op.old_value = node->get(property);
-		ops.push_back(batch_op);
+		// Handle sub-resource paths.
+		if (property.contains(":")) {
+			String leaf_property;
+			String walk_error;
+			Object *leaf = _walk_subresource_chain(node, property, leaf_property, walk_error);
+			if (!leaf) {
+				return _error_result("Operation " + itos(i) + ": " + walk_error);
+			}
+
+			Variant current_leaf_val = leaf->get(leaf_property);
+			if (current_leaf_val.get_type() != Variant::NIL) {
+				value = _coerce_value(value, current_leaf_val.get_type());
+			}
+
+			SubResourceOp sub_op;
+			sub_op.node = node;
+			sub_op.root_property = property.get_slice(":", 0);
+			sub_op.leaf = leaf;
+			sub_op.leaf_property = leaf_property;
+			sub_op.new_value = value;
+
+			// Snapshot root resource for undo.
+			Variant old_root = node->get(sub_op.root_property);
+			Object *old_obj = old_root.get_validated_object();
+			if (old_obj) {
+				Resource *res = Object::cast_to<Resource>(old_obj);
+				if (res) {
+					sub_op.old_root_copy = res->duplicate();
+				}
+			}
+			sub_ops.push_back(sub_op);
+		} else {
+			Variant::Type target_type = _resolve_property_type(node, property);
+			if (target_type != Variant::NIL) {
+				value = _coerce_value(value, target_type);
+			}
+
+			BatchOp batch_op;
+			batch_op.node = node;
+			batch_op.property = property;
+			batch_op.new_value = value;
+			batch_op.old_value = node->get(property);
+			ops.push_back(batch_op);
+		}
 	}
 
 	// All validated — commit as a single undo action.
 	EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
-	ur->create_action("MCP: Set " + itos(ops.size()) + " properties");
+	ur->create_action("MCP: Set " + itos(ops.size() + sub_ops.size()) + " properties");
 
 	for (const BatchOp &op : ops) {
 		ur->add_do_method(op.node, "set", op.property, op.new_value);
 		ur->add_undo_method(op.node, "set", op.property, op.old_value);
 	}
 
-	ur->commit_action();
+	// Apply sub-resource ops directly (they modify in-place).
+	for (const SubResourceOp &sop : sub_ops) {
+		sop.leaf->set(sop.leaf_property, sop.new_value);
+		if (sop.old_root_copy.get_type() != Variant::NIL) {
+			ur->add_undo_method(sop.node, "set", sop.root_property, sop.old_root_copy);
+		}
+	}
 
-	return _success_result("Set " + itos(ops.size()) + " properties in 1 undo action",
-			Dictionary{ { "count", ops.size() } });
+	ur->commit_action(sub_ops.is_empty());
+
+	int total = ops.size() + sub_ops.size();
+	return _success_result("Set " + itos(total) + " properties in 1 undo action",
+			Dictionary{ { "count", total } });
 #else
 	return _error_result("Editor functionality not available");
 #endif

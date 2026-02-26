@@ -67,8 +67,9 @@ struct DirectionalLightData {
 	float shadow_opacity;
 	float fade_from;
 	float fade_to;
-	uvec2 pad;
-	uint bake_mode;
+	int rt_shadow_slice; // Phase C: -1 = no RT shadow; 0-15 = texture2DArray slice
+	uint pad;
+	uint bake_mode; // bits [1:0] = bake mode (directional uses rt_shadow_slice above, not bake_mode packing)
 	float volumetric_fog_energy;
 	vec4 shadow_bias;
 	vec4 shadow_normal_bias;
