@@ -33,7 +33,13 @@
       "mcp__godot__godot_get_editor_log",
       "mcp__godot__godot_project_files",
       "Bash(python3:*)",
-      "mcp__plugin_godot-mcp_godot__godot_capture_screenshot"
+      "mcp__plugin_godot-mcp_godot__godot_capture_screenshot",
+      "mcp__plugin_godot-mcp_godot__godot_run_scene",
+      "mcp__plugin_godot-mcp_godot__godot_wait",
+      "mcp__plugin_godot-mcp_godot__godot_get_runtime_scene_tree",
+      "mcp__plugin_godot-mcp_godot__godot_get_node_info",
+      "mcp__plugin_godot-mcp_godot__godot_stop_scene",
+      "mcp__godot__godot_editor_state"
     ]
   }
 }

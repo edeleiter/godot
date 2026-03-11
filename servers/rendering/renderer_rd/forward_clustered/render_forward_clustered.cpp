@@ -1698,12 +1698,12 @@ void RenderForwardClustered::_process_rt_shadows(RenderDataRD *p_render_data, Re
 
 		RendererRD::SSEffects::RTShadowsLightType rt_type;
 		Vector3 light_dir, light_pos;
-		float light_range = 0.0f, sun_disk_angle = 0.0f, spot_angle = 0.0f;
+		float light_range = 0.0f, light_size = 0.0f, sun_disk_angle = 0.0f, spot_angle = 0.0f;
 
 		switch (light_type) {
 			case RS::LIGHT_DIRECTIONAL:
 				rt_type = RendererRD::SSEffects::RT_SHADOWS_LIGHT_DIRECTIONAL;
-				light_dir = -light_xform.basis.get_column(2).normalized();
+				light_dir = light_xform.basis.get_column(2).normalized(); // toward light (shader convention)
 				light_pos = Vector3();
 				sun_disk_angle = light_storage->light_get_param(base_light, RS::LIGHT_PARAM_SIZE);
 				break;
@@ -1712,12 +1712,14 @@ void RenderForwardClustered::_process_rt_shadows(RenderDataRD *p_render_data, Re
 				light_dir = Vector3();
 				light_pos = light_xform.origin;
 				light_range = light_storage->light_get_param(base_light, RS::LIGHT_PARAM_RANGE);
+				light_size = light_storage->light_get_param(base_light, RS::LIGHT_PARAM_SIZE);
 				break;
 			case RS::LIGHT_SPOT:
 				rt_type = RendererRD::SSEffects::RT_SHADOWS_LIGHT_SPOT;
-				light_dir = -light_xform.basis.get_column(2).normalized();
+				light_dir = -light_xform.basis.get_column(2).normalized(); // where light shines (spot cone axis)
 				light_pos = light_xform.origin;
 				light_range = light_storage->light_get_param(base_light, RS::LIGHT_PARAM_RANGE);
+				light_size = light_storage->light_get_param(base_light, RS::LIGHT_PARAM_SIZE);
 				spot_angle = light_storage->light_get_param(base_light, RS::LIGHT_PARAM_SPOT_ANGLE);
 				break;
 			default:
@@ -1736,6 +1738,7 @@ void RenderForwardClustered::_process_rt_shadows(RenderDataRD *p_render_data, Re
 				light_dir,
 				light_pos,
 				light_range,
+				light_size,
 				sun_disk_angle,
 				spot_angle,
 				projection,

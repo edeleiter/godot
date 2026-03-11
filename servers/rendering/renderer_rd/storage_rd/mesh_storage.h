@@ -154,6 +154,7 @@ private:
 			// Ray tracing acceleration structure (bottom-level).
 			RID blas;
 			RID blas_vertex_array; // Kept alive for BLAS reference.
+			RID blas_position_buffer; // Decompressed float32 positions (only for compressed-attribute meshes).
 			bool blas_pending = false; // Deferred BLAS creation needed.
 			bool blas_built = false; // True after the initial GPU build command is submitted.
 			bool blas_allow_update = false; // True for skinned/blend-shape meshes; enables per-frame BLAS update.

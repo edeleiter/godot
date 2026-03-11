@@ -94,15 +94,9 @@ void main() {
 		return;
 	}
 
-	// === DEBUG TEST A: Depth buffer visualization ===
-	// Expected: Smooth grayscale. Near=white (reversed-Z), far=dark, sky=black.
-	// If fragmented -> depth buffer is wrong or misbound.
-	imageStore(output_color, coord, vec4(depth, depth, depth, 1.0));
-	return;
-	// === END DEBUG ===
-
 	vec3 world_pos = reconstruct_world_pos(uv, depth);
 	vec3 normal = normalize((scene_data.inv_view * vec4(normalize(normal_roughness.xyz * 2.0 - 1.0), 0.0)).xyz);
+
 	vec3 camera_pos = (scene_data.inv_view * vec4(0, 0, 0, 1)).xyz;
 	vec3 view_dir = normalize(world_pos - camera_pos);
 
@@ -145,19 +139,18 @@ void main() {
 	hit_color = vec4(0.0);
 	traceRayEXT(
 		tlas,
-		gl_RayFlagsOpaqueEXT | gl_RayFlagsCullBackFacingTrianglesEXT,
+		gl_RayFlagsOpaqueEXT,
 		0xFF,    // cull mask: all instances
 		0,       // sbt record offset (hit group 0)
 		0,       // sbt record stride
 		0,       // miss index
 		ray_origin,
-		0.001,   // tmin
+		0.01,    // tmin: increased to prevent self-intersection with origin surface
 		reflect_dir,
 		1000.0,  // tmax
 		0        // payload location 0
 	);
 
-	// Write raw traced color. TAA/temporal blending is done by accumulate pass.
 	imageStore(output_color, coord, hit_color);
 }
 

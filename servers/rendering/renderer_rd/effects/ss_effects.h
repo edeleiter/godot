@@ -246,7 +246,7 @@ public:
 		float sun_disk_angle;
 		float spot_angle;
 		float temporal_blend;
-		float pad[1];
+		float light_size; // physical light radius for soft shadow sphere sampling
 	};
 	static_assert(sizeof(RTShadowsPushConstant) <= 128);
 
@@ -282,7 +282,7 @@ public:
 			RID p_tlas, RID p_depth, RID p_normal_roughness, RID p_velocity,
 			RID p_light, RTShadowsLightType p_light_type,
 			const Vector3 &p_light_direction, const Vector3 &p_light_position,
-			float p_light_range, float p_sun_disk_angle, float p_spot_angle,
+			float p_light_range, float p_light_size, float p_sun_disk_angle, float p_spot_angle,
 			const Projection &p_projection, const Projection &p_reprojection,
 			const Transform3D &p_view_transform,
 			uint32_t p_frame_index, uint64_t p_current_frame);

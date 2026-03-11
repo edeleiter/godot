@@ -6355,7 +6355,7 @@ void RenderingDeviceDriverVulkan::tlas_instances_buffer_fill(BufferID p_instance
 		instance.mask = 0xFF;
 		instance.accelerationStructureReference = buffer_get_device_address(blas_info->buffer);
 		instance.instanceShaderBindingTableRecordOffset = 0;
-		instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+		instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FLIP_FACING_BIT_KHR; // Godot meshes use opposite winding to Vulkan RT default.
 	}
 
 	uint8_t *data_ptr = buffer_map(p_instances_buffer);

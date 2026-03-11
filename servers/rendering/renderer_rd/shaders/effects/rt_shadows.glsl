@@ -39,7 +39,7 @@ layout(push_constant, std430) uniform PushConstant {
 	float sun_disk_angle; // Angular radius in radians (0.5 degrees = 0.008726646)
 	float spot_angle;     // Spotlight cone half-angle in radians
 	float temporal_blend; // written by C++ raygen push; unused here (read by accumulate pass)
-	float pad[1];
+	float light_size;    // physical light radius for soft shadow sphere sampling
 } pc;
 
 layout(location = 0) rayPayloadEXT bool in_shadow;
@@ -77,13 +77,13 @@ void main() {
 
 	uint seed = uint(coord.x) * 1973u + uint(coord.y) * 9277u + pc.frame_index * 26699u;
 
-	vec3 shadow_ray_origin = world_pos + normal * 0.005;
+	vec3 shadow_ray_origin = world_pos + normal * 0.01;
 	vec3 shadow_ray_dir;
 	float shadow_tmax;
 
 	if (pc.light_type == LIGHT_TYPE_DIRECTIONAL) {
 		// Directional: shoot toward light direction with jitter within sun_disk_angle cone.
-		vec3 base_dir = normalize(-pc.light_direction);
+		vec3 base_dir = normalize(pc.light_direction);
 		float jitter_x = (rand_float(seed) - 0.5) * 2.0 * pc.sun_disk_angle;
 		float jitter_y = (rand_float(seed + 1u) - 0.5) * 2.0 * pc.sun_disk_angle;
 		vec3 up = abs(base_dir.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
@@ -96,8 +96,8 @@ void main() {
 		// Omni: sample a random point on the light sphere.
 		float theta = rand_float(seed) * 6.28318530;
 		float phi = acos(1.0 - 2.0 * rand_float(seed + 1u));
-		// light_range stores the light sphere radius.
-		vec3 sample_point = pc.light_position + pc.light_range * vec3(
+		// light_size is the physical light radius (not attenuation range).
+		vec3 sample_point = pc.light_position + pc.light_size * vec3(
 				sin(phi) * cos(theta), sin(phi) * sin(theta), cos(phi));
 		vec3 to_light = sample_point - world_pos;
 		shadow_tmax = length(to_light);
@@ -106,7 +106,7 @@ void main() {
 
 	} else { // LIGHT_TYPE_SPOT
 		// Spot: sample a random point within the spotlight cone.
-		vec3 spot_dir = normalize(-pc.light_direction);
+		vec3 spot_dir = normalize(pc.light_direction);
 		float cos_half_angle = cos(pc.spot_angle);
 		float r1 = rand_float(seed);
 		float r2 = rand_float(seed + 1u);
@@ -125,22 +125,11 @@ void main() {
 		shadow_tmax = min(shadow_tmax - 0.001, pc.light_range);
 	}
 
-	in_shadow = true; // Assume shadowed; miss shader clears this.
-
-	traceRayEXT(
-		tlas,
-		gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsCullBackFacingTrianglesEXT,
-		0xFF,
-		0, 0,
-		0,
-		shadow_ray_origin,
-		0.001,
-		shadow_ray_dir,
-		shadow_tmax,
-		0);
-
-	// Write raw shadow value. TAA/temporal blending is handled by the separate
-	// rt_shadows_accumulate.glsl compute pass.
+	in_shadow = true;
+	traceRayEXT(tlas,
+		gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT,
+		0xFF, 0, 0, 0,
+		shadow_ray_origin, 0.001, shadow_ray_dir, shadow_tmax, 0);
 	float shadow_value = in_shadow ? 0.0 : 1.0;
 	imageStore(shadow_mask, coord, vec4(shadow_value, 0.0, 0.0, 0.0));
 }

@@ -546,6 +546,9 @@ void MeshStorage::_mesh_surface_clear(Mesh *p_mesh, int p_surface) {
 	if (s.blas_vertex_array.is_valid()) {
 		RD::get_singleton()->free_rid(s.blas_vertex_array);
 	}
+	if (s.blas_position_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(s.blas_position_buffer);
+	}
 
 	if (s.vertex_buffer.is_valid()) {
 		RD::get_singleton()->free_rid(s.vertex_buffer); // Clears arrays as dependency automatically, including all versions.
@@ -2336,19 +2339,60 @@ void MeshStorage::build_pending_blas_surfaces() {
 				continue;
 			}
 
+			// Determine position stride and buffer for BLAS.
+			// With ARRAY_FLAG_COMPRESS_ATTRIBUTES, positions are R16G16B16A16_UNORM
+			// (8 bytes/vert) encoded relative to the surface AABB. Vulkan BLAS requires
+			// float32 positions, so we decompress into a temporary GPU buffer.
 			RD::VertexAttribute pos_attr;
 			pos_attr.location = 0;
 			pos_attr.offset = 0;
 			pos_attr.format = RD::DATA_FORMAT_R32G32B32_SFLOAT;
-			// Subtract the 4-byte tangent-normal padding (added at surface creation) so the
-			// stride reflects actual per-vertex size rather than buffer-total / count.
-			uint32_t effective_vertex_buffer_size = s->vertex_buffer_size;
-			if (!(s->format & RS::ARRAY_FLAG_COMPRESS_ATTRIBUTES) &&
-					(s->format & RS::ARRAY_FORMAT_NORMAL) &&
-					!(s->format & RS::ARRAY_FORMAT_TANGENT)) {
-				effective_vertex_buffer_size -= sizeof(uint16_t) * 2;
+
+			RID position_buffer; // The GPU buffer to use for BLAS vertex data.
+			const bool compressed = (s->format & RS::ARRAY_FLAG_COMPRESS_ATTRIBUTES) != 0;
+
+			if (compressed) {
+				// Compressed: positions are uint16 UNORM at stride 8 (R16G16B16A16).
+				// Decompress to float32 vec3 at stride 12.
+				const uint32_t src_stride = sizeof(uint16_t) * 4; // 8 bytes
+				const uint32_t dst_stride = sizeof(float) * 3; // 12 bytes
+				pos_attr.stride = dst_stride;
+
+				// Read raw compressed vertex data from GPU.
+				uint32_t src_region = src_stride * s->vertex_count;
+				Vector<uint8_t> src_data = rd->buffer_get_data(s->vertex_buffer, 0, src_region);
+				const uint8_t *src_ptr = src_data.ptr();
+
+				// Decompress: pos = unorm * aabb_size + aabb_position.
+				const Vector3 aabb_pos = s->aabb.position;
+				const Vector3 aabb_size = s->aabb.size;
+				Vector<uint8_t> dst_data;
+				dst_data.resize(dst_stride * s->vertex_count);
+				float *dst_ptr = reinterpret_cast<float *>(dst_data.ptrw());
+
+				for (uint32_t vi = 0; vi < s->vertex_count; vi++) {
+					const uint16_t *u = reinterpret_cast<const uint16_t *>(src_ptr + vi * src_stride);
+					float nx = float(u[0]) / 65535.0f;
+					float ny = float(u[1]) / 65535.0f;
+					float nz = float(u[2]) / 65535.0f;
+					dst_ptr[vi * 3 + 0] = nx * aabb_size.x + aabb_pos.x;
+					dst_ptr[vi * 3 + 1] = ny * aabb_size.y + aabb_pos.y;
+					dst_ptr[vi * 3 + 2] = nz * aabb_size.z + aabb_pos.z;
+				}
+
+				// Upload decompressed positions to a new GPU buffer.
+				BitField<RD::BufferCreationBits> rt_flags =
+						RD::BUFFER_CREATION_DEVICE_ADDRESS_BIT |
+						RD::BUFFER_CREATION_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT;
+				s->blas_position_buffer = rd->vertex_buffer_create(dst_data.size(), dst_data, rt_flags);
+				position_buffer = s->blas_position_buffer;
+			} else {
+				// Uncompressed: positions are float32 vec3 stored contiguously at
+				// the start of vertex_buffer, followed by normal/tangent data.
+				// Stride = sizeof(float) * 3 = 12, regardless of buffer total size.
+				pos_attr.stride = sizeof(float) * 3;
+				position_buffer = s->vertex_buffer;
 			}
-			pos_attr.stride = effective_vertex_buffer_size / s->vertex_count;
 
 			Vector<RD::VertexAttribute> position_attrs;
 			position_attrs.push_back(pos_attr);
@@ -2357,7 +2401,7 @@ void MeshStorage::build_pending_blas_surfaces() {
 			if (pos_format == RD::INVALID_FORMAT_ID) {
 				continue;
 			}
-			s->blas_vertex_array = rd->vertex_array_create(s->vertex_count, pos_format, { s->vertex_buffer });
+			s->blas_vertex_array = rd->vertex_array_create(s->vertex_count, pos_format, { position_buffer });
 			if (!s->blas_vertex_array.is_valid()) {
 				continue;
 			}
@@ -2376,6 +2420,10 @@ void MeshStorage::build_pending_blas_surfaces() {
 			if (!s->blas.is_valid()) {
 				rd->free_rid(s->blas_vertex_array);
 				s->blas_vertex_array = RID();
+				if (s->blas_position_buffer.is_valid()) {
+					rd->free_rid(s->blas_position_buffer);
+					s->blas_position_buffer = RID();
+				}
 				continue;
 			}
 		}

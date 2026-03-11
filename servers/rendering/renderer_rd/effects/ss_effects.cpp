@@ -2369,7 +2369,7 @@ void SSEffects::rt_shadow_dispatch(Ref<RenderSceneBuffersRD> p_render_buffers,
 		RID p_tlas, RID p_depth, RID p_normal_roughness, RID p_velocity,
 		RID p_light, RTShadowsLightType p_light_type,
 		const Vector3 &p_light_direction, const Vector3 &p_light_position,
-		float p_light_range, float p_sun_disk_angle, float p_spot_angle,
+		float p_light_range, float p_light_size, float p_sun_disk_angle, float p_spot_angle,
 		const Projection &p_projection, const Projection &p_reprojection,
 		const Transform3D &p_view_transform,
 		uint32_t p_frame_index, uint64_t p_current_frame) {
@@ -2475,6 +2475,7 @@ void SSEffects::rt_shadow_dispatch(Ref<RenderSceneBuffersRD> p_render_buffers,
 	pc.sun_disk_angle = p_sun_disk_angle;
 	pc.spot_angle = p_spot_angle;
 	pc.temporal_blend = 0.25f; // stored in push constant padding; unused by raygen shader
+	pc.light_size = p_light_size;
 
 	// Set 0: TLAS
 	RD::Uniform u_tlas(RD::UNIFORM_TYPE_ACCELERATION_STRUCTURE, 0, p_tlas);

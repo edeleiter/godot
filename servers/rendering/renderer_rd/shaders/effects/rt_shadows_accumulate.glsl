@@ -54,8 +54,8 @@ void main() {
 		blend = 1.0; // Full current frame: no ghosting on camera cut or fast motion.
 	}
 
-	float history = texture(history_buffer, history_uv).r;
-	float history_clamped = clamp(history, nb_min, nb_max);
+	float history_sample = texture(history_buffer, history_uv).r;
+	float history_clamped = clamp(history_sample, nb_min, nb_max);
 	float result = mix(history_clamped, current, blend);
 	imageStore(output_buffer, coord, vec4(result, 0.0, 0.0, 0.0));
 }
